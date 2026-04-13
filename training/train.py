@@ -66,7 +66,7 @@ class BirdDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx: int):
         row = self.df.iloc[idx]
-        image_path = row["image_path"]
+        image_path = row["path"]
         label = row["label"]
 
         image = Image.open(image_path).convert("RGB")
