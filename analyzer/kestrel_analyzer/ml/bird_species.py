@@ -77,7 +77,8 @@ class BirdSpeciesClassifier:
         top_species_scores = logits[top_species_indices].astype(float)
 
         if self.family_matrix.shape[0] > 0:
-            family_probs = self.family_matrix @ logits
+            softmax = np.exp(logits - logits.max()) / np.exp(logits - logits.max()).sum()
+            family_probs = self.family_matrix @ softmax
             top_family_indices = np.argsort(family_probs)[-top_k:][::-1]
             top_family_labels = [self.family_display_names[i] for i in top_family_indices]
             top_family_scores = family_probs[top_family_indices].astype(float).tolist()
