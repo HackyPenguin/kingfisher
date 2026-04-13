@@ -692,7 +692,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def parse_args():
-    ap = argparse.ArgumentParser(description='Serve Project Kestrel visualizer with local desktop bridge.')
+    ap = argparse.ArgumentParser(description='Serve Peregrine visualizer with local desktop bridge.')
     ap.add_argument('--port', type=int, default=8765, help='Port to listen on (default 8765)')
     ap.add_argument('--root', default='', help='Default root folder for RAW originals (client can override unless KESTREL_ALLOWED_ROOT set)')
     return ap.parse_args()
@@ -807,7 +807,7 @@ def main():
         log('Starting windowed UI via pywebview...')
         api = Api() # start maximized
         api._server_port = args.port
-        win = webview.create_window('Project Kestrel', url, js_api=api, maximized=True)
+        win = webview.create_window('Peregrine', url, js_api=api, maximized=True)
         api._main_window = win
 
         # When the analysis queue is running, intercept the close event so the
@@ -836,7 +836,7 @@ def main():
                         MB_ICONQUESTION = 0x00000020
                         title = 'Analysis in progress'
                         if _queue_manager.is_paused:
-                            msg = 'Analysis is paused. Exit Project Kestrel? You can re-open later to resume.'
+                            msg = 'Analysis is paused. Exit Peregrine? You can re-open later to resume.'
                         else:
                             msg = 'Analysis is in progress. Cancel analysis and exit?'
                         resp = ctypes.windll.user32.MessageBoxW(0, msg, title, MB_YESNOCANCEL | MB_ICONQUESTION)
@@ -864,7 +864,7 @@ def main():
                         root = _tk.Tk()
                         root.withdraw()
                         if _queue_manager.is_paused:
-                            msg = 'Analysis is paused. Exit Project Kestrel? You can re-open later to resume.'
+                            msg = 'Analysis is paused. Exit Peregrine? You can re-open later to resume.'
                         else:
                             msg = 'Analysis is in progress. Cancel analysis and exit?'
                         res = _mb.askyesnocancel('Analysis in progress', msg)

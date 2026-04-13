@@ -52,7 +52,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ProjectKestrel',
+    name='Peregrine',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -73,13 +73,13 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='ProjectKestrel',
+    name='Peregrine',
     icon='../assets/logo.ico',
 )
 
 app = BUNDLE(
     coll,
-    name='Project Kestrel.app',
+    name='Peregrine.app',
     icon='../assets/logo.ico',
-    bundle_identifier='org.ProjectKestrel',
+    bundle_identifier='org.Peregrine',
 )

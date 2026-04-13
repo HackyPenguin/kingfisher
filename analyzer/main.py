@@ -14,10 +14,10 @@ if platform.system() == "Windows": # REQUIRED to prevent pytorch dll load errors
 
 def _create_splash(app):
     splash = QWidget()
-    splash.setWindowTitle("Kestrel Analyzer")
+    splash.setWindowTitle("Peregrine")
     splash.setFixedSize(420, 160)
     layout = QVBoxLayout(splash)
-    title_label = QLabel("Project Kestrel is Loading…", splash)
+    title_label = QLabel("Peregrine is Loading…", splash)
     title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     title_label.setObjectName("splashTitle")
     status_label = QLabel("Starting…", splash)
