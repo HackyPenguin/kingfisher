@@ -58,7 +58,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=True,
-    icon='../assets/logo.ico',
+    icon='logo_peregrine.icns',
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -74,12 +74,12 @@ coll = COLLECT(
     upx=False,
     upx_exclude=[],
     name='Peregrine',
-    icon='../assets/logo.ico',
+    icon='logo_peregrine.icns',
 )
 
 app = BUNDLE(
     coll,
     name='Peregrine.app',
-    icon='../assets/logo.ico',
+    icon='logo_peregrine.icns',
     bundle_identifier='org.Peregrine',
 )
