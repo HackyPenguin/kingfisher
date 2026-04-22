@@ -589,7 +589,7 @@ class QueueManager:
                     with self._lock:
                         _it.current_species_results = list(data.get('results') or [])
 
-                self._pipeline.process_folder(
+                result = self._pipeline.process_folder(
                     item.path,
                     pause_event=self._pause_event,
                     cancel_event=self._cancel_event,
@@ -608,16 +608,22 @@ class QueueManager:
                     scene_time_threshold=self._scene_time_threshold,
                     mask_threshold=self._mask_threshold,
                     max_bird_crops=self._max_bird_crops,
-                )
+                ) or {}
+                outcome = str(result.get('status') or 'completed').strip().lower()
                 with self._lock:
-                    if self._cancel_event.is_set():
+                    item.end_time = _time_mod.time()
+                    if isinstance(result.get('processed'), int):
+                        item.processed = int(result['processed'])
+                    if isinstance(result.get('total'), int):
+                        item.total = int(result['total'])
+
+                    if self._cancel_event.is_set() or outcome == 'cancelled':
                         item.status = 'cancelled'
-                        item.end_time = _time_mod.time()
-                    else:
+                    elif outcome in ('completed', 'already_complete', 'no_supported_files'):
                         item.status = 'done'
-                        item.end_time = _time_mod.time()
-                        if item.total > 0:
-                            item.processed = item.total
+                    else:
+                        item.status = 'error'
+                        item.error = f'Unexpected pipeline outcome: {outcome or "unknown"}'
                 self._persist_recovery_state()
                 self._send_folder_analytics(item)
             except Exception as exc:
