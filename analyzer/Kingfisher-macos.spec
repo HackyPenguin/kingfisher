@@ -38,7 +38,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=True,
-    icon='logo_peregrine.icns',
+    icon='logo_kingfisher.icns',
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -54,12 +54,12 @@ coll = COLLECT(
     upx=False,
     upx_exclude=[],
     name='Kingfisher',
-    icon='logo_peregrine.icns',
+    icon='logo_kingfisher.icns',
 )
 
 app = BUNDLE(
     coll,
     name='Kingfisher.app',
-    icon='logo_peregrine.icns',
+    icon='logo_kingfisher.icns',
     bundle_identifier='org.Kingfisher',
 )

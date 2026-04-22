@@ -402,7 +402,7 @@ class AnalysisPipeline:
                         "folder": folder,
                     },
                 )
-                return
+                return {"status": "no_supported_files", "processed": 0, "total": 0}
 
             log_event(
                 self._log_path,
@@ -447,13 +447,13 @@ class AnalysisPipeline:
             if progress_cb:
                 progress_cb(processed_count, total)
             if processed_count > 0 and status_cb:
-                status_cb("Picking up where Kestrel left off...")
+                status_cb("Picking up where Kingfisher left off...")
             if not new_files:
                 if status_cb:
                     status_cb("No new files to process.")
                 if progress_cb:
                     progress_cb(total, total)
-                return
+                return {"status": "already_complete", "processed": total, "total": total}
 
             stage_ctx["stage"] = "load_models"
             self.load_models(status_cb=status_cb, max_bird_crops=max_bird_crops)
@@ -482,14 +482,22 @@ class AnalysisPipeline:
                             flush_database_checkpoint(force=True)
                             if status_cb:
                                 status_cb('Cancelled')
-                            return
+                            return {
+                                "status": "cancelled",
+                                "processed": processed_count + idx - 1,
+                                "total": total,
+                            }
                         # Wait with timeout to be interruptible
                         pause_event.wait(timeout=0.5)
                 if cancel_event is not None and cancel_event.is_set():
                     flush_database_checkpoint(force=True)
                     if status_cb:
                         status_cb('Cancelled')
-                    return
+                    return {
+                        "status": "cancelled",
+                        "processed": processed_count + idx - 1,
+                        "total": total,
+                    }
 
                 entry = {
                     "filename": raw_file,
@@ -1350,6 +1358,8 @@ class AnalysisPipeline:
                     stage="post_analysis_normalization",
                 )
 
+            return {"status": "completed", "processed": total, "total": total}
+
         except Exception as e:
             log_exception(
                 self._log_path,
@@ -1361,5 +1371,6 @@ class AnalysisPipeline:
                 status_cb(f"Fatal error: {e}")
             if error_cb:
                 error_cb("fatal", e)
+            raise
         finally:
             warnings.showwarning = original_showwarning
