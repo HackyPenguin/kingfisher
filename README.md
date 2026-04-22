@@ -2,6 +2,8 @@
 
 Kingfisher uses machine learning to organize your bird photo collection. By grouping similar photos together, ranking them by sharpness, and tagging them by bird species, Kingfisher turns your photography into a searchable, quality-sorted, and interactive library.
 
+Kingfisher is a fork of Project Kestrel, adapted for UK bird photography workflows. Current day-to-day development, packaging, and testing are focused on macOS.
+
 ![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)
@@ -104,8 +106,8 @@ Features of the visualizer:
 - Generates precise masks to ensure image quality is assessed on bird pixels only, not background pixels.
 
 ### 2. Species Classification
-- A custom machine learning model was trained for bird species identification for North American birds.
-- Improvements to classification are planned.
+- Kingfisher is currently focused on bird species identification for UK birding workflows.
+- Improvements to classification coverage and accuracy are planned.
 
 ### 3. Quality Assessment
 - A custom machine learning model was trained to analyze the quality of the images.
