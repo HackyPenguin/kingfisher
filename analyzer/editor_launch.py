@@ -1,4 +1,4 @@
-"""Editor launching logic for Project Kestrel.
+"""Editor launching logic for Kingfisher.
 
 Handles opening original photo files in various editors across Windows, macOS, and Linux.
 """

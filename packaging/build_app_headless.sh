@@ -2,14 +2,14 @@
 set -euo pipefail
 
 # ========================================
-# Project Kestrel macOS App Builder (Headless)
-# Builds unified ProjectKestrel onedir bundle (PyInstaller only)
+# Kingfisher macOS App Builder (Headless)
+# Builds unified Kingfisher onedir bundle (PyInstaller only)
 # No .pkg installer - for faster CI builds
 # ========================================
 
 echo
 printf "%s\n" "========================================"
-printf "%s\n" "Project Kestrel macOS App Builder"
+printf "%s\n" "Kingfisher macOS App Builder"
 printf "%s\n" "========================================"
 echo
 
@@ -51,57 +51,15 @@ printf "%s\n" "========================================"
 echo
 
 pushd analyzer || exit 1
-python -m PyInstaller ProjectKestrel-macos.spec
+python -m PyInstaller Kingfisher-macos.spec
 popd
 
-DIST_DIR="analyzer/dist/ProjectKestrel"
-if [[ ! -f "${DIST_DIR}/ProjectKestrel" ]]; then
-  echo "[ERROR] ProjectKestrel binary not found after build."
+DIST_DIR="analyzer/dist/Kingfisher"
+if [[ ! -f "${DIST_DIR}/Kingfisher" ]]; then
+  echo "[ERROR] Kingfisher binary not found after build."
   exit 1
 fi
 echo "[OK] PyInstaller onedir build complete: ${DIST_DIR}/"
-
-echo
-printf "%s\n" "========================================"
-printf "%s\n" "Copying sample_sets (with hidden files)..."
-printf "%s\n" "========================================"
-echo
-
-# Copy to .app bundle Resources directory (includes hidden files with cp -R)
-APP_BUNDLE="analyzer/dist/Project Kestrel.app"
-if [[ -d "${APP_BUNDLE}" ]]; then
-  RESOURCES_DIR="${APP_BUNDLE}/Contents/Resources"
-  mkdir -p "${RESOURCES_DIR}"
-  # Remove any existing copy to avoid nested or stale files, then copy recursively
-  if [[ -d "${RESOURCES_DIR}/sample_sets" ]]; then
-    echo "[INFO] Removing existing ${RESOURCES_DIR}/sample_sets to ensure clean copy"
-    rm -rf "${RESOURCES_DIR}/sample_sets"
-  fi
-  cp -R "analyzer/sample_sets" "${RESOURCES_DIR}/"
-  echo "[OK] Copied sample_sets to ${RESOURCES_DIR}/sample_sets/"
-
-  # Also copy to _internal subdirectory as fallback path
-  INTERNAL_DIR="${RESOURCES_DIR}/_internal"
-  mkdir -p "${INTERNAL_DIR}"
-  if [[ -d "${INTERNAL_DIR}/sample_sets" ]]; then
-    echo "[INFO] Removing existing ${INTERNAL_DIR}/sample_sets to ensure clean copy"
-    rm -rf "${INTERNAL_DIR}/sample_sets"
-  fi
-  cp -R "analyzer/sample_sets" "${INTERNAL_DIR}/"
-  echo "[OK] Copied sample_sets to ${INTERNAL_DIR}/sample_sets/"
-else
-  echo "[WARNING] .app bundle not found at ${APP_BUNDLE}"
-fi
-
-# Also copy to onedir bundle if it exists (for completeness)
-if [[ -d "${DIST_DIR}" ]]; then
-  if [[ -d "${DIST_DIR}/sample_sets" ]]; then
-    echo "[INFO] Removing existing ${DIST_DIR}/sample_sets to ensure clean copy"
-    rm -rf "${DIST_DIR}/sample_sets"
-  fi
-  cp -R "analyzer/sample_sets" "${DIST_DIR}/"
-  echo "[OK] Copied sample_sets to ${DIST_DIR}/sample_sets/"
-fi
 
 echo
 printf "%s\n" "========================================"

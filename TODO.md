@@ -1,4 +1,4 @@
-# Project Kestrel To-Do and Changelog
+# Kingfisher To-Do and Changelog
 
 Bugs
 * Known issue that skipping to next scene works inconsistently, and the background view should scroll to match the current scene opened in the film strip. [DONE]

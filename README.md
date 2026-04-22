@@ -1,12 +1,12 @@
-# Project Kestrel 🦅
+# Kingfisher 🦅
 
-Project Kestrel uses machine learning to organize your bird photo collection. By grouping similar photos together, ranking them by sharpness, and tagging them by bird species, Kestrel turns your photography into a searchable, quality-sorted, and interactive library.
+Kingfisher uses machine learning to organize your bird photo collection. By grouping similar photos together, ranking them by sharpness, and tagging them by bird species, Kingfisher turns your photography into a searchable, quality-sorted, and interactive library.
 
 ![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)
 
-[Visit Projectkestrel.org](https://projectkestrel.org) | [Donate](https://www.paypal.com/donate/?hosted_button_id=CXH4FE5AKZD3A)
+[GitHub Repository](https://github.com/HackyPenguin/kingfisher) | [GitHub Releases](https://github.com/HackyPenguin/kingfisher/releases) | [Donate](https://buymeacoffee.com/hackypenguin)
 
 ## At a Glance
 
@@ -17,18 +17,20 @@ Project Kestrel uses machine learning to organize your bird photo collection. By
 
 ## Get Started
 
-For the best experience, download the latest version for your platform from [ProjectKestrel.org](https://projectkestrel.org/download) or the [GitHub Releases page](https://github.com/SanjaySoniLV/ProjectKestrel/releases).
+For the best experience, download the latest version for your platform from the [GitHub Releases page](https://github.com/HackyPenguin/kingfisher/releases).
 
-Project Kestrel is now a single, unified application for analyzing and exploring your photos.
+Kingfisher is now a single, unified application for analyzing and exploring your photos.
+
+> **Breaking change:** Kingfisher intentionally starts with a fresh app state. Old Kestrel settings, telemetry flags, and analysis data are **not migrated or imported**. Re-analyze folders in Kingfisher to generate new `.kingfisher` data.
 
 ## Tutorial: 5 Steps to Better Culling
 
 ### Step 1: Install & Open
-Download and install Kestrel, then launch the application to get started.
-![Install Kestrel](readme_imgs/kestrel-open.png)
+Download and install Kingfisher, then launch the application to get started.
+![Install Kingfisher](readme_imgs/kestrel-open.png)
 
 ### Step 2: Analyze Folders
-Select the folders containing your RAW or JPEG photos. Kestrel will scan them, detecting birds and estimating image quality.
+Select the folders containing your RAW or JPEG photos. Kingfisher will scan them, detecting birds and estimating image quality.
 ![Analyze Folders](readme_imgs/live-analysis.png)
 
 ### Step 3: Explore Results
@@ -47,7 +49,7 @@ Search through thousands of photos by species or family to instantly rediscover 
 
 ## Features
 
-- **Automatic Bird Detection**: Kestrel finds exactly where the bird is in your photo and focuses its analysis there.
+- **Automatic Bird Detection**: Kingfisher finds exactly where the bird is in your photo and focuses its analysis there.
 - **Family & Species Search**: Classifies birds so you can filter your library by species or family keywords.
 - **Objective Quality Ranking**: Only considers sharpness, motion blur, and noise, letting you keep full artistic control.
 - **Intelligent Scene Grouping**: Bursts are grouped automatically so you can compare similar frames side-by-side.
@@ -65,8 +67,8 @@ If you are on Linux or prefer to run from source code, follow these steps:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/SanjaySoniLV/ProjectKestrel.git
-cd ProjectKestrel
+git clone https://github.com/HackyPenguin/kingfisher.git
+cd Kingfisher
 ```
 
 2. Install dependencies:
@@ -83,7 +85,7 @@ python analyzer/visualizer.py
 *(Note: In the unified version, the visualizer serves as the main entry point for both analysis and browsing.)*
 
 Security baseline:
-- Project Kestrel runs in desktop mode via pywebview.
+- Kingfisher runs in desktop mode via pywebview.
 - Browser-only fallback mode is no longer supported.
 - The app is intended to run fully offline once dependencies are installed.
 
@@ -118,7 +120,7 @@ Features of the visualizer:
 ## Project Structure
 
 ```
-ProjectKestrel/
+Kingfisher/
 ├── analyzer/                 # Analyzer app (GUI + CLI + core pipeline)
 │   ├── gui_app.py            # PyQt GUI entry
 │   ├── cli.py                # CLI entry
@@ -134,7 +136,7 @@ ProjectKestrel/
 
 ## Supported File Formats
 
-Kestrel's quality scoring model is trained on RAW images, and may not work as well for JPG images (but can still be used). Kestrel uses rawpy to read RAW files. If your camera's RAW format is not listed below, please create a pull request, and we will add it to the list.
+Kingfisher's quality scoring model is trained on RAW images, and may not work as well for JPG images (but can still be used). Kingfisher uses rawpy to read RAW files. If your camera's RAW format is not listed below, please create a pull request, and we will add it to the list.
 
 **RAW Formats** (preferred):
 - Canon: `.cr2`, `.cr3`
@@ -157,33 +159,33 @@ Kestrel's quality scoring model is trained on RAW images, and may not work as we
 ## 🔧 Configuration
 
 ### GPU Acceleration
-GPU is currently NOT supported in the distributed versions of Project Kestrel. GPU may be supported in a future date, but for now, the only option to use GPU is to run Kestrel from source. This will contribute marginal improvements to analysis times, but requires a capable system, and is extremely unstable/not formally supported at this time. To do this, when running the analyzer, you'll be prompted to choose between:
+GPU is currently NOT supported in the distributed versions of Kingfisher. GPU may be supported in a future date, but for now, the only option to use GPU is to run Kingfisher from source. This will contribute marginal improvements to analysis times, but requires a capable system, and is extremely unstable/not formally supported at this time. To do this, when running the analyzer, you'll be prompted to choose between:
 - **GPU Mode**: Uses DirectML on Windows (faster, requires compatible GPU and Windows OS)
 - **CPU Mode**: Uses CPU execution provider (slightly, but works on all systems)
 
 > NOTE: Not all models are run on the GPU, and GPU acceleration is in Beta development and may be unstable. If you run into errors or instability, please use CPU mode.
 
 ### Output Structure
-Processed images are organized in a `.kestrel` folder within your photo directory:
+Processed images are organized in a `.kingfisher` folder within your photo directory. This is a breaking change from earlier `.kestrel` builds:
 ```
 your_photos/
-├── .kestrel/
+├── .kingfisher/
 │   ├── export/           # Resized JPEG exports
 │   ├── crop/            # Cropped bird images
-│   └── kestrel_database.csv  # Analysis results
+│   └── kingfisher_database.csv  # Analysis results
 └── [your original photos]
 ```
 
-The `.kestrel` folder will require an additional 1MB of disk space for every ~100MB of RAW files. This folder may also include error or warning logs.
+The `.kingfisher` folder will require an additional 1MB of disk space for every ~100MB of RAW files. This folder may also include error or warning logs.
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit pull requests, report bugs, or suggest features.
 
-Donations are welcome. Please donate via [PayPal/Card](https://www.paypal.com/donate/?hosted_button_id=CXH4FE5AKZD3A)
+Donations are welcome via [Buy Me a Coffee](https://buymeacoffee.com/hackypenguin).
 
 ## ❓ Contact Me
-Direct questions or comments to [support@projectkestrel.org](mailto:support@projectkestrel.org)
+Questions, bug reports, and support requests should go to [GitHub Issues](https://github.com/HackyPenguin/kingfisher/issues).
 
 ## 📄 License
 

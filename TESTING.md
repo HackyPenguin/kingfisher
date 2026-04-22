@@ -1,4 +1,4 @@
-# Project Kestrel — UI/UX Testing Plan
+# Kingfisher — UI/UX Testing Plan
 
 > **How to use this document:** Work through each step in order. For each bullet, mark `[x]` when the behavior is confirmed, `[!]` when something looks wrong, or `[-]` when not applicable. Steps are grouped into **CORE** (must pass every release), **GRANULAR** (important but secondary), and **MINOR** (polish/edge-case).
 
@@ -16,9 +16,9 @@ Start the application fresh (or with cleared settings so legal agreement has not
 - [ ] The agreement text is legible and appropriately styled.
 - [ ] "Agree" button is present and clearly labeled.
 - [ ] Clicking "Agree" dismisses the agreement and proceeds to the main UI.
-- [ ] After agreeing, reopening Kestrel does **not** show the agreement screen again.
-- [ ] Installation telemetry is fired exactly once (visible in server logs / Cloudflare dashboard: `/api/install`).
-- [ ] `settings.json` in `%LOCALAPPDATA%\ProjectKestrel\` contains `legal_agreed_version` and `installed_telemetry_sent: true`.
+- [ ] After agreeing, reopening Kingfisher does **not** show the agreement screen again.
+- [ ] `settings.json` in `%LOCALAPPDATA%\Kingfisher\` contains `legal_agreed_version`.
+- [ ] No telemetry prompt appears during first launch; telemetry is disabled for this release.
 
 ---
 
@@ -47,7 +47,7 @@ Click **Analyze Folders**. The Analyze Folders dialog opens.
 
 - [ ] Software prompts user to select a parent/root folder via a native OS folder picker.
 - [ ] Folder tree loads and displays subfolders.
-- [ ] Folders that already have a `.kestrel/kestrel_database.csv` are visually distinguished (colored label: `analyzed-full`, `analyzed-partial`, or `analyzed-none`) from folders with no prior analysis.
+- [ ] Folders that already have a `.kingfisher/kingfisher_database.csv` are visually distinguished (colored label: `analyzed-full`, `analyzed-partial`, or `analyzed-none`) from folders with no prior analysis.
 - [ ] Folders with zero supported images are shown as greyed-out / disabled (cannot be checked).
 - [ ] Folders are checkable. Checking a folder adds it to the queue preview on the right.
 - [ ] The queue preview lists all pending folders.
@@ -79,23 +79,18 @@ After clicking Start Analysis from Step 1:
 - [ ] Analysis can be **cancelled** mid-folder.
 - [ ] After cancellation, the folder status shows `cancelled` in the queue.
 - [ ] Queue moves on to the next folder automatically after the previous one finishes.
-- [ ] Analysis completion telemetry fires after each folder completes (`/api/completion` visible in logs).
-- [ ] `settings.json` `kestrel_impact_total_files` increments correctly after each completed folder.
+- [ ] `settings.json` `kingfisher_impact_total_files` increments correctly after each completed folder.
+- [ ] No telemetry or analytics upload is attempted during or after folder completion.
 
 ---
 
-### Step 1.2 (CORE) — Analytics Consent Dialog
+### Step 1.2 (CORE) — Telemetry Disabled
 
 After analysis completes or is cancelled for the first time:
 
-- [ ] Analytics consent dialog appears (shown exactly once per install).
-- [ ] Dialog clearly explains what data is collected (anonymous, no filenames/paths/images).
-- [ ] "Opt In" button is present and clearly labeled.
-- [ ] "No Thanks" / decline option is present.
-- [ ] Choosing **Opt In** sends the cached `pending_analytics` payload to `/api/analytics` (visible in logs).
-- [ ] Choosing **Decline** does not send analytics; no further prompts.
-- [ ] Dialog does not re-appear on subsequent launches or analyses.
-- [ ] `settings.json` contains `analytics_consent_shown: true` and `analytics_opted_in` reflects choice.
+- [ ] No analytics consent dialog appears.
+- [ ] Settings describe telemetry as disabled.
+- [ ] `settings.json` may record local flags, but no telemetry or analytics upload occurs.
 
 ---
 
@@ -143,7 +138,7 @@ From the main scene grid or scene detail dialog:
 - [ ] AI-assigned star ratings render in **blue**; manually set ratings override and show amber.
 - [ ] Setting rating to 0 (clicking already-selected lowest star) clears the rating back to AI default.
 - [ ] Rating is immediately reflected in the scene card and in the detail dialog.
-- [ ] Rating is written back to `kestrel_database.csv` (confirm by reopening the folder — rating persists).
+- [ ] Rating is written back to `kingfisher_database.csv` (confirm by reopening the folder — rating persists).
 - [ ] Scene name can be edited inline (click the name field in the scene card or dialog).
 - [ ] Edited scene name persists after closing and reopening the folder.
 - [ ] **Merge Scenes**: Select two or more scene cards (Ctrl+click or Shift+click), then click "Merge Scenes" in the floating action bar.
@@ -360,18 +355,6 @@ Load a folder with many scenes (50+).
 
 ---
 
-### Step 4G (GRANULAR) — Sample Sets
-
-From the Welcome panel or Analyze Folders:
-
-- [ ] "Load Sample Set" or equivalent option is visible.
-- [ ] Sample set "Backyard Birds" loads and displays scenes with bird images.
-- [ ] Sample set "Forest Trail" loads and displays correctly.
-- [ ] Images in sample sets are pre-analyzed — species names, quality scores, and ratings are shown.
-- [ ] Double-clicking a sample image opens it in the photo editor without error.
-
----
-
 ### Step 5G (GRANULAR) — Folder Tree Behavior
 
 In the sidebar folder tree:
@@ -381,7 +364,7 @@ In the sidebar folder tree:
 - [ ] Folders without analyzed images are styled differently (greyed-out or `no-kestrel` class).
 - [ ] Folders with full analysis data show the `analyzed-full` bright label.
 - [ ] Folders with partial analysis show `analyzed-partial` styling.
-- [ ] `analyzed-none` folders (has `.kestrel` dir but no results) show correct styling.
+- [ ] `analyzed-none` folders (has `.kingfisher` dir but no results) show correct styling.
 - [ ] Tree scan is truncated cleanly at 2000 nodes — a notice or truncation message is shown if hit.
 - [ ] Hidden/system folders (e.g., `$RECYCLE.BIN`, `__pycache__`) do not appear in the tree.
 
@@ -392,7 +375,7 @@ In the sidebar folder tree:
 Click the info/version badge or an "About" option.
 
 - [ ] Info dialog shows current version string matching `VERSION.txt`.
-- [ ] Any links in the dialog (e.g., projectkestrel.org) open in the system browser.
+- [ ] Any links in the dialog (e.g., github.com/HackyPenguin/kingfisher) open in the system browser.
 - [ ] Machine ID is visible (if shown) and is a valid UUID4 string.
 
 ---
@@ -406,7 +389,7 @@ Click the feedback button (speech bubble icon or equivalent).
 - [ ] Optional contact email field is present.
 - [ ] "Include recent logs" checkbox is present.
 - [ ] "Attach screenshot" option (if present) works.
-- [ ] Clicking "Submit" with a description sends feedback to `/api/feedback` (confirm in server logs).
+- [ ] Clicking "Submit" with a description returns a success confirmation in the UI.
 - [ ] Toast or confirmation message appears after submission.
 - [ ] Submitting with an empty description shows a validation hint rather than crashing.
 - [ ] Closing the dialog without submitting makes no network call.
@@ -422,9 +405,9 @@ Click the feedback button (speech bubble icon or equivalent).
 Visit every dialog and panel in the app:
 
 - [ ] **Legal Agreement** — if a ToS / Privacy Policy link is present, it opens the correct URL.
-- [ ] **XMP Help Link** (in Finish Culling dialog / conflict dialog) → opens `https://projectkestrel.org/help/metadata-help` in the system browser.
+- [ ] **XMP Help Link** (in Finish Culling dialog / conflict dialog) → opens `https://github.com/HackyPenguin/kingfisher/issues` in the system browser.
 - [ ] **Welcome Panel** (first-load) — all three "quick-start" cards are visible and their action buttons are functional.
-- [ ] Welcome panel links (e.g., "Learn more", project website) open correct URLs.
+- [ ] Welcome panel links (tutorial guide, repo, policy docs) open correct GitHub URLs.
 - [ ] Settings dialog external links (if any) open correctly.
 - [ ] Feedback dialog "learn more" or privacy links open correctly.
 - [ ] All `disabled` buttons are visually faded and cannot be clicked.
@@ -474,8 +457,8 @@ Visit every dialog and panel in the app:
 
 ### Step M6 (MINOR) — Error & Edge Cases
 
-- [ ] Opening a folder that has **no `.kestrel` subfolder** at all: appropriate empty-state message is shown.
-- [ ] Opening a folder where `kestrel_database.csv` exists but is **empty or malformed**: no crash; error toast displayed.
+- [ ] Opening a folder that has **no `.kingfisher` subfolder** at all: appropriate empty-state message is shown.
+- [ ] Opening a folder where `kingfisher_database.csv` exists but is **empty or malformed**: no crash; error toast displayed.
 - [ ] Attempting to start analysis when **no GPU is available** and GPU mode is requested: falls back gracefully to CPU.
 - [ ] Deleting an image file from disk while Kestrel is open: reloading the folder handles the missing file gracefully.
 - [ ] Analysis of a folder with **0 supported images**: queue item immediately marked done (or error); no infinite spin.
@@ -485,16 +468,13 @@ Visit every dialog and panel in the app:
 
 ---
 
-### Step M7 (MINOR) — Telemetry Endpoint Coverage
+### Step M7 (MINOR) — Telemetry Disabled Coverage
 
-Using the application normally (with a proxy/log if needed), confirm the following backend endpoints fire:
+Using the application normally (with a proxy/log if needed), confirm the following behaviors:
 
-- [ ] `/api/install` — fires once on first legal agreement (never repeated).
-- [ ] `/api/completion` — fires after each analyzed folder (even if 0 new files).
-- [ ] `/api/analytics` — fires after opt-in **and** when a folder completes (or pending analytics are flushed).
-- [ ] `/api/feedback` — fires when a feedback form is submitted.
-- [ ] `/api/crash` — fires if an unhandled exception occurs (can be manually triggered in dev builds).
-- [ ] No telemetry endpoint receives PII: no file paths, no image data, no real folder names (only hashed folder names).
+- [ ] No installation, completion, analytics, feedback, or crash telemetry endpoint is contacted during testing.
+- [ ] Feedback submission still shows a success/failure result in the UI without crashing the app.
+- [ ] Breaking change is documented: old `.kestrel` analysis folders are ignored and users must re-analyze into `.kingfisher`.
 
 ---
 

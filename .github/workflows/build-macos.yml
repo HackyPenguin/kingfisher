@@ -19,7 +19,7 @@ jobs:
           mkdir -p analyzer/models
 
           curl -L -o analyzer/models/mask_rcnn_resnet50_fpn_v2.pth \
-            "https://github.com/SanjaySoniLV/ProjectKestrel/releases/download/test/mask_rcnn_resnet50_fpn_v2.pth"
+            "https://github.com/SanjaySoniLV/Kingfisher/releases/download/test/mask_rcnn_resnet50_fpn_v2.pth"
 
           echo "Verifying download..."
           if [ ! -f analyzer/models/mask_rcnn_resnet50_fpn_v2.pth ]; then
@@ -71,6 +71,7 @@ jobs:
           fi
           echo "Found .app: $APP_PATH"
           cp -a "$APP_PATH" artifact/
+          ditto -c -k --keepParent "$APP_PATH" "artifact/Kingfisher.zip"
 
       # -------------------------------------------------------
       # SIGNING + NOTARIZATION
@@ -109,7 +110,7 @@ jobs:
       - name: Sign the .app
         shell: bash
         run: |
-          APP_PATH="analyzer/dist/Project Kestrel.app"
+          APP_PATH="analyzer/dist/Kingfisher.app"
 
           # Sign all .so and .dylib files first (inside-out signing)
           find "$APP_PATH" -type f \( -name "*.so" -o -name "*.dylib" \) | while read f; do
@@ -137,13 +138,13 @@ jobs:
       - name: Notarize the .app
         shell: bash
         run: |
-          APP_PATH="analyzer/dist/Project Kestrel.app"
+          APP_PATH="analyzer/dist/Kingfisher.app"
 
           # Zip for notarization submission
-          ditto -c -k --keepParent "$APP_PATH" "artifact/ProjectKestrel_notarize.zip"
+          ditto -c -k --keepParent "$APP_PATH" "artifact/Kingfisher_notarize.zip"
 
           # Submit to Apple and wait for result
-          xcrun notarytool submit "artifact/ProjectKestrel_notarize.zip" \
+          xcrun notarytool submit "artifact/Kingfisher_notarize.zip" \
             --apple-id "${{ secrets.APPLE_ID }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
             --password "${{ secrets.APPLE_APP_PASSWORD }}" \
@@ -154,7 +155,7 @@ jobs:
           xcrun stapler staple "$APP_PATH"
 
           # Clean up the zip used for submission
-          rm "artifact/ProjectKestrel_notarize.zip"
+          rm "artifact/Kingfisher_notarize.zip"
 
           echo "Notarization and stapling complete."
 
@@ -168,14 +169,14 @@ jobs:
           brew install create-dmg
 
           create-dmg \
-            --volname "Project Kestrel" \
+            --volname "Kingfisher" \
             --window-size 540 380 \
             --icon-size 128 \
-            --icon "Project Kestrel.app" 140 190 \
+            --icon "Kingfisher.app" 140 190 \
             --app-drop-link 400 190 \
-            --hide-extension "Project Kestrel.app" \
-            "artifact/ProjectKestrel.dmg" \
-            "analyzer/dist/Project Kestrel.app"
+            --hide-extension "Kingfisher.app" \
+            "artifact/Kingfisher.dmg" \
+            "analyzer/dist/Kingfisher.app"
 
       # -------------------------------------------------------
       # ARTIFACTS
@@ -185,13 +186,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: artifact/ProjectKestrel.dmg
+          path: artifact/Kingfisher.dmg
 
       - name: Upload macOS .app (zipped)
         uses: actions/upload-artifact@v4
         with:
           name: macos-app-ditto
-          path: artifact/ProjectKestrel.zip
+          path: artifact/Kingfisher.zip
 
       - name: Upload macOS .app (folder)
         uses: actions/upload-artifact@v4
@@ -203,4 +204,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-bundle
-          path: analyzer/dist/ProjectKestrel/
+          path: analyzer/dist/Kingfisher/

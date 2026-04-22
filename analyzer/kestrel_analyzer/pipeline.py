@@ -2,6 +2,7 @@ import json
 import os
 import time
 import warnings
+from collections import defaultdict
 from typing import Callable, Dict, Optional
 
 import cv2
@@ -61,6 +62,123 @@ class AnalysisPipeline:
         self.species_clf: Optional[BirdSpeciesClassifier] = None
         self.quality_clf: Optional[QualityClassifier] = None
         self._log_path: Optional[str] = None
+        self._profile_enabled = str(os.getenv("KINGFISHER_PROFILE", "")).strip().lower() in {"1", "true", "yes", "on"}
+        self._profile_totals: dict[str, float] = defaultdict(float)
+        self._profile_counts: dict[str, int] = defaultdict(int)
+        self._profile_counters: dict[str, int] = defaultdict(int)
+        self._profile_current_image: dict[str, float] | None = None
+        self._profile_current_image_counters: dict[str, int] | None = None
+        self._profile_run_started_at: float | None = None
+
+    def _profile_begin_run(self) -> None:
+        if not self._profile_enabled:
+            return
+        self._profile_totals = defaultdict(float)
+        self._profile_counts = defaultdict(int)
+        self._profile_counters = defaultdict(int)
+        self._profile_current_image = None
+        self._profile_current_image_counters = None
+        self._profile_run_started_at = time.perf_counter()
+
+    def _profile_start_image(self) -> None:
+        if not self._profile_enabled:
+            return
+        self._profile_current_image = defaultdict(float)
+        self._profile_current_image_counters = defaultdict(int)
+
+    def _profile_record(self, stage: str, started_at: float, raw_file: str | None = None, **extra) -> float:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        if not self._profile_enabled:
+            return elapsed_ms
+        self._profile_totals[stage] += elapsed_ms
+        self._profile_counts[stage] += 1
+        if self._profile_current_image is not None:
+            self._profile_current_image[stage] += elapsed_ms
+        if self._log_path:
+            payload = {
+                "level": "info",
+                "event": "profile_stage",
+                "stage": stage,
+                "elapsed_ms": round(elapsed_ms, 3),
+            }
+            if raw_file is not None:
+                payload["file"] = raw_file
+            payload.update(extra)
+            log_event(self._log_path, payload)
+        return elapsed_ms
+
+    def _profile_increment(self, counter: str, amount: int = 1, raw_file: str | None = None, **extra) -> None:
+        if not self._profile_enabled:
+            return
+        self._profile_counters[counter] += int(amount)
+        if self._profile_current_image_counters is not None:
+            self._profile_current_image_counters[counter] += int(amount)
+        if self._log_path:
+            payload = {
+                "level": "info",
+                "event": "profile_counter",
+                "counter": counter,
+                "value": int(amount),
+            }
+            if raw_file is not None:
+                payload["file"] = raw_file
+            payload.update(extra)
+            log_event(self._log_path, payload)
+
+    def _profile_finish_image(self, raw_file: str) -> None:
+        if not self._profile_enabled or self._profile_current_image is None or not self._log_path:
+            self._profile_current_image = None
+            self._profile_current_image_counters = None
+            return
+        stage_totals = {
+            stage: round(ms, 3)
+            for stage, ms in sorted(self._profile_current_image.items(), key=lambda item: item[1], reverse=True)
+        }
+        image_total_ms = round(sum(self._profile_current_image.values()), 3)
+        counters = {
+            counter: int(value)
+            for counter, value in sorted((self._profile_current_image_counters or {}).items(), key=lambda item: item[0])
+        }
+        payload = {
+            "level": "info",
+            "event": "profile_image_summary",
+            "file": raw_file,
+            "image_total_ms": image_total_ms,
+            "stage_totals_ms": stage_totals,
+        }
+        if counters:
+            payload["counters"] = counters
+        log_event(self._log_path, payload)
+        self._profile_current_image = None
+        self._profile_current_image_counters = None
+
+    def _profile_finish_run(self, file_count: int) -> None:
+        if not self._profile_enabled or not self._log_path:
+            return
+        wall_ms = None
+        if self._profile_run_started_at is not None:
+            wall_ms = round((time.perf_counter() - self._profile_run_started_at) * 1000.0, 3)
+        stage_totals = {
+            stage: {
+                "total_ms": round(total_ms, 3),
+                "count": int(self._profile_counts.get(stage, 0)),
+                "avg_ms": round(total_ms / max(1, self._profile_counts.get(stage, 0)), 3),
+            }
+            for stage, total_ms in sorted(self._profile_totals.items(), key=lambda item: item[1], reverse=True)
+        }
+        payload = {
+            "level": "info",
+            "event": "profile_run_summary",
+            "file_count": int(file_count),
+            "wall_ms": wall_ms,
+            "stage_totals_ms": stage_totals,
+        }
+        if self._profile_counters:
+            payload["counters"] = {
+                counter: int(value)
+                for counter, value in sorted(self._profile_counters.items(), key=lambda item: item[0])
+            }
+        log_event(self._log_path, payload)
 
     @staticmethod
     def _create_mask_overlay(
@@ -164,19 +282,25 @@ class AnalysisPipeline:
         if status_cb:
             status_cb("Loading models... This may take a while on first run.")
         if not mask_ready_for_cap:
+            _t0 = time.perf_counter()
             self.mask_rcnn = MaskRCNNWrapper(max_bird_crops=max_bird_crops)
+            self._profile_record("model_load_mask_rcnn", _t0)
         if not self.species_clf:
+            _t0 = time.perf_counter()
             self.species_clf = BirdSpeciesClassifier(
                 str(SPECIESCLASSIFIER_PATH),
                 str(SPECIESCLASSIFIER_LABELS),
                 self.use_gpu,
                 models_dir=str(MODELS_DIR),
             )
+            self._profile_record("model_load_species_onnx", _t0)
         if not self.quality_clf:
+            _t0 = time.perf_counter()
             self.quality_clf = QualityClassifier(
                 str(QUALITYCLASSIFIER_PATH),
                 normalization_data_path=str(QUALITY_NORMALIZATION_DATA_PATH),
             )
+            self._profile_record("model_load_quality_tf", _t0)
         if status_cb:
             status_cb("Models loaded. Processing started.")
 
@@ -230,6 +354,7 @@ class AnalysisPipeline:
         active_wildlife_categories = WILDLIFE_CATEGORIES if wildlife_enabled else []
 
         self._log_path = get_log_path(folder)
+        self._profile_begin_run()
         stage_ctx = {"stage": "startup", "file": None}
 
         original_showwarning = warnings.showwarning
@@ -304,6 +429,21 @@ class AnalysisPipeline:
             new_files = [f for f in files if f not in processed_set]
             processed_count = len(files) - len(new_files)
             total = len(files)
+            checkpoint_every = 25
+            pending_checkpoint_writes = 0
+
+            def flush_database_checkpoint(force: bool = False) -> None:
+                nonlocal database, pending_checkpoint_writes
+                if not force and pending_checkpoint_writes < checkpoint_every:
+                    return
+                if pending_checkpoint_writes <= 0 and not force:
+                    return
+                stage_ctx["stage"] = "save_database_checkpoint"
+                _t0 = time.perf_counter()
+                save_database(database, db_path)
+                self._profile_record("database_checkpoint_write", _t0)
+                pending_checkpoint_writes = 0
+
             if progress_cb:
                 progress_cb(processed_count, total)
             if processed_count > 0 and status_cb:
@@ -334,16 +474,19 @@ class AnalysisPipeline:
             scene_count = database["scene_count"].max() if not database.empty else 0
 
             for idx, raw_file in enumerate(new_files, start=1):
+                self._profile_start_image()
                 # Pause: wait until resume or until cancel_event is set.
                 if pause_event is not None:
                     while not pause_event.is_set():
                         if cancel_event is not None and cancel_event.is_set():
+                            flush_database_checkpoint(force=True)
                             if status_cb:
                                 status_cb('Cancelled')
                             return
                         # Wait with timeout to be interruptible
                         pause_event.wait(timeout=0.5)
                 if cancel_event is not None and cancel_event.is_set():
+                    flush_database_checkpoint(force=True)
                     if status_cb:
                         status_cb('Cancelled')
                     return
@@ -385,16 +528,21 @@ class AnalysisPipeline:
                     stage_ctx["stage"] = "read_image"
                     stage_ctx["file"] = raw_file
                     image_path = os.path.join(folder, raw_file)
+                    _t0 = time.perf_counter()
                     img, raw_obj = read_image_for_pipeline(image_path)
+                    self._profile_record("raw_decode_postprocess", _t0, raw_file=raw_file, is_raw=bool(raw_obj is not None))
+                    self._profile_increment("raw_postprocess_calls", raw_file=raw_file)
                     if img is None:
                         raise RuntimeError("Image read returned None")
 
                     if raw_obj is not None:
                         entry["exposure_pipeline"] = "no_auto_bright_metered_v1"
+                        _t0 = time.perf_counter()
                         metered_img, raw_meter_scale, meter_debug = build_metered_detection_image(
                             raw_obj,
                             profile=exposure_profile,
                         )
+                        self._profile_record("raw_metering", _t0, raw_file=raw_file)
                         entry["exposure_meter_scale"] = float(raw_meter_scale)
                         if metered_img is not None:
                             img = metered_img
@@ -410,7 +558,9 @@ class AnalysisPipeline:
                     entry["orientation"] = current_orientation
 
                     try:
+                        _t0 = time.perf_counter()
                         ct = get_capture_time(image_path)
+                        self._profile_record("read_capture_time", _t0, raw_file=raw_file)
                         entry["capture_time"] = ct.isoformat() if ct is not None else ""
                     except Exception:
                         pass
@@ -462,7 +612,9 @@ class AnalysisPipeline:
                             }
                         )
                     else:
+                        _t0 = time.perf_counter()
                         similarity = compute_image_similarity_akaze(previous_image, img)
+                        self._profile_record("compute_similarity_akaze", _t0, raw_file=raw_file)
                         if not similarity["similar"]:
                             scene_count += 1
                         entry.update(
@@ -481,12 +633,14 @@ class AnalysisPipeline:
 
                     stage_ctx["stage"] = "export_image"
                     export_path = os.path.join(export_dir, f"{os.path.splitext(raw_file)[0]}_export.jpg")
+                    _t0 = time.perf_counter()
                     img_small = cv2.resize(img, (1200, int(1200 * img.shape[0] / img.shape[1])))
                     cv2.imwrite(
                         export_path,
                         cv2.cvtColor(img_small, cv2.COLOR_RGB2BGR),
                         [cv2.IMWRITE_JPEG_QUALITY, 70],
                     )
+                    self._profile_record("export_write", _t0, raw_file=raw_file)
                     # Store relative path for cross-platform compatibility
                     export_path_rel = os.path.relpath(export_path, folder)
                     entry.update({"export_path": export_path_rel})
@@ -497,7 +651,9 @@ class AnalysisPipeline:
                     # MaskRCNN inference can take many seconds. Pause semantics are
                     # handled at the start of each image loop so we do not check
                     # repeatedly inside the image processing path.
+                    _t0 = time.perf_counter()
                     masks, pred_boxes, pred_class, pred_score = self.mask_rcnn.get_prediction(img, threshold=detection_threshold, mask_threshold=mask_threshold)
+                    self._profile_record("mask_rcnn_inference", _t0, raw_file=raw_file)
                     if masks is None or len(masks) == 0:
                         if detection_cb:
                             detection_cb(
@@ -517,11 +673,13 @@ class AnalysisPipeline:
                             status_cb(f"No detections in {raw_file}")
                         stage_ctx["stage"] = "write_crop"
                         crop_path = os.path.join(crop_dir, f"{os.path.splitext(raw_file)[0]}_crop_0.jpg")
+                        _t0 = time.perf_counter()
                         cv2.imwrite(
                             crop_path,
                             cv2.cvtColor(img_small, cv2.COLOR_RGB2BGR),
                             [cv2.IMWRITE_JPEG_QUALITY, 85],
                         )
+                        self._profile_record("crop_write", _t0, raw_file=raw_file)
                         # Store relative path for cross-platform compatibility
                         crop_path_rel = os.path.relpath(crop_path, folder)
                         h, w = img.shape[:2]
@@ -563,8 +721,12 @@ class AnalysisPipeline:
                             }
                         )
                         stage_ctx["stage"] = "save_database"
+                        _t0 = time.perf_counter()
                         database = pd.concat([database, pd.DataFrame([entry])], ignore_index=True)
-                        save_database(database, db_path)
+                        self._profile_record("database_append", _t0, raw_file=raw_file)
+                        pending_checkpoint_writes += 1
+                        flush_database_checkpoint()
+                        self._profile_finish_image(raw_file)
                         if image_cb:
                             image_cb(entry)
                         if progress_cb:
@@ -590,7 +752,12 @@ class AnalysisPipeline:
 
                     def process_nonbird(primary_mask_i):
                         stage_ctx["stage"] = "process_nonbird"
+                        self._profile_increment("crop_candidates", raw_file=raw_file)
+                        _stage_t0 = time.perf_counter()
+                        _t0 = time.perf_counter()
                         stops = self._compute_exposure_stops(img, masks[primary_mask_i], exposure_profile)
+                        self._profile_record("exposure_compute_stops", _t0, raw_file=raw_file)
+                        _t0 = time.perf_counter()
                         stops = self._refine_exposure_stops(
                             img,
                             masks[primary_mask_i],
@@ -601,6 +768,8 @@ class AnalysisPipeline:
                             base_scale=raw_meter_scale,
                             no_auto_bright=raw_obj is not None,
                         )
+                        self._profile_record("exposure_refine_stops", _t0, raw_file=raw_file)
+                        _t0 = time.perf_counter()
                         img_src = self._apply_exposure_correction(
                             img,
                             stops,
@@ -609,6 +778,7 @@ class AnalysisPipeline:
                             no_auto_bright=raw_obj is not None,
                             profile=exposure_profile,
                         )
+                        self._profile_record("exposure_apply_correction", _t0, raw_file=raw_file)
                         total_stops = (
                             ec_compose_total_stops(stops, raw_meter_scale)
                             if raw_obj is not None
@@ -620,10 +790,13 @@ class AnalysisPipeline:
                             if raw_obj is not None
                             else "legacy_auto_bright_v1"
                         )
+                        _t0 = time.perf_counter()
                         crop_bbox = self.mask_rcnn.get_square_crop_box(masks[primary_mask_i])
-                        quality_crop, quality_mask = self.mask_rcnn.get_square_crop(
-                            masks[primary_mask_i], img_src, resize=True
+                        quality_crop, quality_mask = self.mask_rcnn.get_square_crop_from_box(
+                            masks[primary_mask_i], img_src, crop_bbox, resize=True
                         )
+                        self._profile_record("crop_quality_extract_resize", _t0, raw_file=raw_file)
+                        self._profile_record("exposure_and_crop_prepare", _stage_t0, raw_file=raw_file)
                         quality_score = self.quality_clf.classify(quality_crop, quality_mask)
                         return {
                             "index": int(primary_mask_i),
@@ -648,7 +821,12 @@ class AnalysisPipeline:
                         for i in indices:
                             # Process per-crop results. Pause is checked at the
                             # top of the image loop so we avoid pausing mid-image.
+                            self._profile_increment("crop_candidates", raw_file=raw_file)
+                            _stage_t0 = time.perf_counter()
+                            _t0 = time.perf_counter()
                             stops = self._compute_exposure_stops(img, masks[i], exposure_profile)
+                            self._profile_record("exposure_compute_stops", _t0, raw_file=raw_file)
+                            _t0 = time.perf_counter()
                             stops = self._refine_exposure_stops(
                                 img,
                                 masks[i],
@@ -659,6 +837,8 @@ class AnalysisPipeline:
                                 base_scale=raw_meter_scale,
                                 no_auto_bright=raw_obj is not None,
                             )
+                            self._profile_record("exposure_refine_stops", _t0, raw_file=raw_file)
+                            _t0 = time.perf_counter()
                             img_src = self._apply_exposure_correction(
                                 img,
                                 stops,
@@ -667,6 +847,7 @@ class AnalysisPipeline:
                                 no_auto_bright=raw_obj is not None,
                                 profile=exposure_profile,
                             )
+                            self._profile_record("exposure_apply_correction", _t0, raw_file=raw_file)
                             total_stops = (
                                 ec_compose_total_stops(stops, raw_meter_scale)
                                 if raw_obj is not None
@@ -678,9 +859,16 @@ class AnalysisPipeline:
                                 if raw_obj is not None
                                 else "legacy_auto_bright_v1"
                             )
+                            _t0 = time.perf_counter()
                             species_crop = self.mask_rcnn.get_species_crop(pred_boxes[i], img_src)
+                            self._profile_record("crop_species_extract", _t0, raw_file=raw_file)
+                            _t0 = time.perf_counter()
                             crop_bbox = self.mask_rcnn.get_square_crop_box(masks[i])
-                            quality_crop, quality_mask = self.mask_rcnn.get_square_crop(masks[i], img_src, resize=True)
+                            quality_crop, quality_mask = self.mask_rcnn.get_square_crop_from_box(
+                                masks[i], img_src, crop_bbox, resize=True
+                            )
+                            self._profile_record("crop_quality_extract_resize", _t0, raw_file=raw_file)
+                            self._profile_record("exposure_and_crop_prepare", _stage_t0, raw_file=raw_file)
                             items.append(
                                 {
                                     "index": i,
@@ -707,7 +895,9 @@ class AnalysisPipeline:
                         for item in items:
                             i = item["index"]
                             if pred_class[i] == "bird":
+                                _t0 = time.perf_counter()
                                 species_result = self.species_clf.classify(item["species_crop"])
+                                self._profile_record("species_onnx_inference", _t0, raw_file=raw_file)
                                 item["species"] = (
                                     species_result["top_species_labels"][0]
                                     if len(species_result["top_species_labels"])
@@ -738,7 +928,9 @@ class AnalysisPipeline:
                                 4,
                             )
                             stage_ctx["stage"] = "quality_score"
+                            _t0 = time.perf_counter()
                             quality_score = self.quality_clf.classify(item["quality_crop"], item["quality_mask"])
+                            self._profile_record("quality_tf_inference", _t0, raw_file=raw_file)
                             item["quality"] = quality_score
                             item["rating"] = quality_to_rating(quality_score, rating_thresholds)
                         if quality_cb:
@@ -916,11 +1108,13 @@ class AnalysisPipeline:
                         if crop_img is None:
                             continue
                         crop_path = os.path.join(crop_dir, f"{base_name}_crop_{crop_idx}.jpg")
+                        _t0 = time.perf_counter()
                         cv2.imwrite(
                             crop_path,
                             cv2.cvtColor(crop_img, cv2.COLOR_RGB2BGR),
                             [cv2.IMWRITE_JPEG_QUALITY, 85],
                         )
+                        self._profile_record("crop_write", _t0, raw_file=raw_file)
                         crop_path_rel = os.path.relpath(crop_path, folder)
                         bbox = crop_item.get("crop_bbox") or {
                             "x_min": 0,
@@ -992,8 +1186,11 @@ class AnalysisPipeline:
                     )
 
                     stage_ctx["stage"] = "save_database"
+                    _t0 = time.perf_counter()
                     database = pd.concat([database, pd.DataFrame([entry])], ignore_index=True)
-                    save_database(database, db_path)
+                    self._profile_record("database_append", _t0, raw_file=raw_file)
+                    pending_checkpoint_writes += 1
+                    flush_database_checkpoint()
 
                     if image_cb:
                         image_cb(entry)
@@ -1005,6 +1202,7 @@ class AnalysisPipeline:
                             f"Processed {raw_file}: {entry['species']} Q={_display_q}"
                             f" ({idx + processed_count}/{total})"
                         )
+                    self._profile_finish_image(raw_file)
                 except Exception as e:
                     log_exception(
                         self._log_path,
@@ -1024,12 +1222,18 @@ class AnalysisPipeline:
                     entry["scene_count"] = scene_count
                     entry["species"] = "Error"
                     entry["similar"] = False
+                    _t0 = time.perf_counter()
                     database = pd.concat([database, pd.DataFrame([entry])], ignore_index=True)
-                    save_database(database, db_path)
+                    self._profile_record("database_append", _t0, raw_file=raw_file)
+                    pending_checkpoint_writes += 1
+                    flush_database_checkpoint(force=True)
+                    self._profile_finish_image(raw_file)
                     time.sleep(2)
 
                 if progress_cb:
                     progress_cb(idx + processed_count, total)
+
+                flush_database_checkpoint()
 
                 # Explicitly clear large temporary variables after each image
                 # so that pausing between images doesn't retain large buffers.
@@ -1059,6 +1263,8 @@ class AnalysisPipeline:
                 except Exception:
                     pass
 
+            flush_database_checkpoint(force=True)
+
             # === Post-analysis: compute quality distribution and normalized ratings ===
             stage_ctx["stage"] = "post_analysis_normalization"
             try:
@@ -1068,9 +1274,9 @@ class AnalysisPipeline:
                     distribution = compute_quality_distribution(quality_scores)
 
                     # Save analysis results (no normalized_rating; computed at runtime)
-                    save_database(database, db_path)
+                    flush_database_checkpoint(force=True)
 
-                    # Cache quality distribution in kestrel_metadata.json for runtime normalization
+                    # Cache quality distribution in kingfisher_metadata.json for runtime normalization
                     metadata_path = os.path.join(kestrel_dir, METADATA_FILENAME)
                     try:
                         import json as _json
@@ -1109,7 +1315,7 @@ class AnalysisPipeline:
                             stage="post_analysis_normalization",
                         )
 
-                    # Create or update kestrel_scenedata.json
+                    # Create or update kingfisher_scenedata.json
                     try:
                         existing_scenedata = load_scenedata(kestrel_dir)
                         if not existing_scenedata.get("scenes"):
@@ -1121,10 +1327,11 @@ class AnalysisPipeline:
                     except Exception as _sd_e:
                         log_warning(
                             self._log_path,
-                            f"Failed to create/update kestrel_scenedata.json: {_sd_e}",
+                            f"Failed to create/update kingfisher_scenedata.json: {_sd_e}",
                             stage="post_analysis_normalization",
                         )
 
+                self._profile_finish_run(len(database))
                 log_event(
                     self._log_path,
                     {

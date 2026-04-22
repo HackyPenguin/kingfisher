@@ -2188,7 +2188,7 @@
     }
 
     /* Context menu for folder tree */
-    .kestrel-ctx-menu {
+    .kingfisher-ctx-menu {
       position: fixed;
       z-index: 9999;
       background: #23272e;
@@ -2198,21 +2198,21 @@
       min-width: 220px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.5);
     }
-    .kestrel-ctx-menu-item {
+    .kingfisher-ctx-menu-item {
       padding: 7px 16px;
       cursor: pointer;
       font-size: 13px;
       color: #ddd;
       white-space: nowrap;
     }
-    .kestrel-ctx-menu-item:hover {
+    .kingfisher-ctx-menu-item:hover {
       background: #3a3f4b;
       color: #fff;
     }
-    .kestrel-ctx-menu-item.danger {
+    .kingfisher-ctx-menu-item.danger {
       color: #e74c3c;
     }
-    .kestrel-ctx-menu-item.danger:hover {
+    .kingfisher-ctx-menu-item.danger:hover {
       background: #5a2020;
       color: #ff6b6b;
     }

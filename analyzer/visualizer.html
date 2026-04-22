@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Peregrine</title>
+  <title>Kingfisher</title>
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="visualizer.css" />
   <script src="csv_parser.js"></script>
@@ -12,8 +12,8 @@
 
 <body>
   <div id="legalNotice" class="legal-notice-banner hidden">
-    <span>By using Project Kestrel you agree to our <a href="https://projectkestrel.org/terms-of-use"
-        target="_blank">Terms of Use</a> and <a href="https://projectkestrel.org/privacy-policy" target="_blank">Privacy
+    <span>By using Kingfisher you agree to our <a href="https://github.com/HackyPenguin/kingfisher/blob/main/TERMSOFUSE.md"
+        target="_blank">Terms of Use</a> and <a href="https://github.com/HackyPenguin/kingfisher/blob/main/PRIVACYPOLICY.md" target="_blank">Privacy
         Policy</a>.</span>
     <button id="legalAgreeBtn" class="legal-notice-btn">Agree & Dismiss</button>
   </div>
@@ -21,21 +21,21 @@
   <header>
     <div class="wrap">
       <h1>
-        <img src="logo.png" alt="Peregrine" style="height:32px; vertical-align:middle; margin-right:8px;" />
-        <span style="vertical-align:middle;">Peregrine</span>
+        <img src="logo.png" alt="Kingfisher" style="height:32px; vertical-align:middle; margin-right:8px;" />
+        <span style="vertical-align:middle;">Kingfisher</span>
       </h1>
       <div class="toolbar">
         <div class="toolbar-row actions">
-          <button id="pickFolder" class="primary" title="Open a folder you've already analyzed with Kestrel">
+          <button id="pickFolder" class="primary" title="Open a folder you've already analyzed with Kingfisher">
             📂 Open Folder
             <span class="help-tip"
-              data-tip="Open the folder that contains your bird photos after the folder is analyzed with Kestrel."
+              data-tip="Open the folder that contains your bird photos after the folder is analyzed with Kingfisher."
               aria-label="Folder selection help"
-              title="Open the folder that contains your bird photos after the folder with Kestrel.">?</span>
+              title="Open the folder that contains your bird photos after the folder is analyzed with Kingfisher.">?</span>
           </button>
           <div class="actions-secondary-row">
             <button id="analyzeQueueBtn" title="Select folders to add to the analysis queue" style="flex:1">🔬 Analyze Folders…</button>
-            <button id="openSettings" title="Open Kestrel settings" style="flex:1">⚙ Settings</button>
+            <button id="openSettings" title="Open Kingfisher settings" style="flex:1">⚙ Settings</button>
           </div>
           <div id="saveRevertWrap" class="hidden" style="display:flex;gap:6px">
             <button id="revertCsv" disabled title="Discard all unsaved changes" style="flex:1">Revert Changes</button>
@@ -110,7 +110,7 @@
         </div>
         <button id="openFeedback" title="Send feedback, report a bug, or share a suggestion" style="font-size:11px;padding:4px 8px;">Feedback</button>
         <button id="helpBtnMain" title="Start guided tutorial">📖 Tutorial</button>
-        <button id="donateBtnMain" class="donate-btn" title="Support Project Kestrel — Donate via PayPal">💛 Donate</button>
+        <button id="donateBtnMain" class="donate-btn" title="Support Kingfisher — Buy Me a Coffee">💛 Donate</button>
       </div>
     </div>
   </header>
@@ -120,8 +120,8 @@
     <div id="mainZoom">
       <div id="compat" class="wrap hidden">
         <div class="notice">
-          Desktop bridge unavailable. Project Kestrel now runs in desktop-only mode.<br />
-          Please close this window and relaunch from the Project Kestrel app.
+          Desktop bridge unavailable. Kingfisher now runs in desktop-only mode.<br />
+          Please close this window and relaunch from the Kingfisher app.
         </div>
       </div>
 
@@ -129,23 +129,23 @@
 
       <!-- Welcome / Quick-Start panel — visible only when no folder is loaded -->
       <div id="welcomePanel">
-        <img src="logo.png" alt="Kestrel Logo" style="height:150px; margin-bottom:8px; opacity:0.9;">
-        <h2>Welcome to Kestrel</h2>
+        <img src="logo.png" alt="Kingfisher Logo" style="height:150px; margin-bottom:8px; opacity:0.9;">
+        <h2>Welcome to Kingfisher</h2>
         <p class="welcome-subtitle">What would you like to do?</p>
         <button class="welcome-action-btn" style="display:block; margin:12px auto 20px; width:100%; max-width:300px; font-size:14px; padding:10px 16px;" onclick="startMainTutorial(1, 0)">📖 Start Tutorial</button>
 
         <div class="welcome-cards">
           <div class="welcome-card">
             <div class="welcome-card-icon">&#x1F52C;</div>
-            <div class="welcome-card-title">First time using Kestrel?</div>
-            <p>Get started by adding your photo folders to the Analysis Queue. Kestrel will automatically detect birds,
+            <div class="welcome-card-title">First time using Kingfisher?</div>
+            <p>Get started by adding your photo folders to the Analysis Queue. Kingfisher will automatically detect birds,
               identify species, and score image quality across your entire library.</p>
             <span class="welcome-action-btn" id="welcomeAnalyzeBtn">Analyze Photos&#x2026;</span>
           </div>
           <div class="welcome-card">
             <div class="welcome-card-icon">&#x1F4C2;</div>
             <div class="welcome-card-title">Returning to review your photos?</div>
-            <p>Open a folder you&rsquo;ve already analyzed with Kestrel. Use the search and filtering options on the
+            <p>Open a folder you&rsquo;ve already analyzed with Kingfisher. Use the search and filtering options on the
               left to find specific species or sort by image quality.</p>
             <span class="welcome-action-btn" id="welcomeOpenBtn">Open Folder&#x2026;</span>
           </div>
@@ -164,7 +164,7 @@
           </div>
           <div class="welcome-tip">
             <span class="welcome-tip-icon">&#x1F4A1;</span>
-            <span>Not satisfied with Kestrel's star rating system? Configure your preferences via <span class="welcome-link" id="welcomeSettingsLink">Settings&hellip;</span></span>
+            <span>Not satisfied with Kingfisher's star rating system? Configure your preferences via <span class="welcome-link" id="welcomeSettingsLink">Settings&hellip;</span></span>
           </div>
           <div class="welcome-tip">
             <span class="welcome-tip-icon">&#x1F4A1;</span>
@@ -174,11 +174,14 @@
         </div>
 
         <div class="welcome-footer">
-          Need help? Visit <a id="welcomeTutorialLink" href="https://projectkestrel.org/tutorial" target="_blank"
-            rel="noopener noreferrer">projectkestrel.org/tutorial</a> for a video walk-through or look for the in-app <b>Tutorial</b> buttons.
+          <div style="margin-bottom:10px; font-size:11px; opacity:0.86; color:#d9c27a;">
+            Kingfisher intentionally starts fresh: old Kestrel settings and analysis data are not imported. Re-analyze folders to create new <code>.kingfisher</code> data.
+          </div>
+          Need help? Visit <a id="welcomeTutorialLink" href="https://github.com/HackyPenguin/kingfisher/blob/main/README.md#tutorial-5-steps-to-better-culling" target="_blank"
+            rel="noopener noreferrer">the GitHub tutorial guide</a> for a quick walkthrough or use the in-app <b>Tutorial</b> buttons.
           <div style="margin-top:12px; font-size:11px; opacity:0.8;">
-            By using Project Kestrel, you agree to the <a href="https://projectkestrel.org/terms-of-use"
-              target="_blank">Terms of Use</a> and <a href="https://projectkestrel.org/privacy-policy"
+            By using Kingfisher, you agree to the <a href="https://github.com/HackyPenguin/kingfisher/blob/main/TERMSOFUSE.md"
+              target="_blank">Terms of Use</a> and <a href="https://github.com/HackyPenguin/kingfisher/blob/main/PRIVACYPOLICY.md"
               target="_blank">Privacy Policy</a>.
           </div>
         </div>
@@ -334,7 +337,7 @@
     style="position:fixed;right:18px;bottom:72px;display:flex;align-items:center;justify-content:center;z-index:20010;pointer-events:none;">
     <div
       style="background:rgba(10,12,15,0.96);border:1px solid #2a3040;padding:10px 14px;border-radius:10px;color:var(--text);pointer-events:auto;box-shadow:0 6px 18px rgba(0,0,0,.5);min-width:240px;">
-      <div style="font-weight:700;margin-bottom:4px;font-size:13px">Loading Kestrel Analyzer…</div>
+      <div style="font-weight:700;margin-bottom:4px;font-size:13px">Loading Kingfisher…</div>
       <div style="color:var(--muted);font-size:12px">Models are loading. Analysis will start shortly.</div>
     </div>
   </div>
@@ -388,7 +391,7 @@
           <option value="custom">Custom Application…</option>
         </select>
       </div>
-      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Choose which editor Kestrel should use
+      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Choose which editor Kingfisher should use
         when opening originals. &ldquo;System Default&rdquo; will use your OS default application.</div>
       <div class="row hidden" id="customEditorRow">
         <label for="customEditorPath">Application Path</label>
@@ -431,7 +434,7 @@
           style="width:80px" title="Minimum MaskRCNN confidence score (0.10–0.99) required to count as a true detection" />
       </div>
       <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Minimum confidence score
-        (0.10–0.99) that the bird detector must reach before Kestrel counts something as a detection. Lowering
+        (0.10–0.99) that the bird detector must reach before Kingfisher counts something as a detection. Lowering
         this value may increase <b>false positive</b> detections on difficult images. Requires re-analysis to
         take effect. Also filters which species and family tags are shown in scene dialogs.</div>
 
@@ -457,9 +460,9 @@
       <div class="row">
         <label for="maxBirdCrops">Max Bird Crops Saved Per Image</label>
         <input id="maxBirdCrops" type="number" min="1" max="20" step="1" value="5"
-          style="width:80px" title="Maximum number of bird crops Kestrel saves per image (1-20)." />
+          style="width:80px" title="Maximum number of bird crops Kingfisher saves per image (1-20)." />
       </div>
-      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Controls how many top bird detections Kestrel saves per image. Mask R-CNN proposal and detection caps are automatically set to 2x this value. <b style="color:#e0a34a">Warning: increasing this value (for example to 20) can substantially increase compute time and memory overhead.</b> Requires re-analysis to take effect.</div>
+      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Controls how many top bird detections Kingfisher saves per image. Mask R-CNN proposal and detection caps are automatically set to 2x this value. <b style="color:#e0a34a">Warning: increasing this value (for example to 20) can substantially increase compute time and memory overhead.</b> Requires re-analysis to take effect.</div>
 
       <div class="row">
         <label for="exposureCompensationProfile">Exposure Compensation Profile</label>
@@ -491,7 +494,8 @@
         </label>
       </div>
       <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Cache full-resolution RAW previews
-        in .kestrel/culling_TMP for faster subsequent loads. Disable to save disk space (previews will be generated fresh each time).</div>
+        in .kingfisher/culling_TMP for faster subsequent loads. Disable to save disk space (previews will be generated fresh each time).</div>
+      <div class="muted" style="font-size:12px;margin-top:-2px;margin-bottom:8px;color:#d9c27a;">Kingfisher uses a fresh settings/data layout. Legacy Kestrel settings and `.kestrel` analysis folders are not imported.</div>
 
       <div class="row">
         <label for="rawExposureCorrectionDisabled" style="flex:1">Disable RAW Exposure Correction</label>
@@ -500,7 +504,7 @@
           <span class="muted">Disable</span>
         </label>
       </div>
-      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">By default, Kestrel applies a calculated exposure boost to RAW previews to match the processed JPEG. Enable this to view the RAW data without correction.</div>
+      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">By default, Kingfisher applies a calculated exposure boost to RAW previews to match the processed JPEG. Enable this to view the RAW data without correction.</div>
 
       <div class="row">
         <label for="settingsAutoSave" style="flex:1">Auto-Save Changes</label>
@@ -514,10 +518,10 @@
       <h4 style="margin:12px 0 8px;padding-top:8px;border-top:1px solid #1d2230;color:#a0a8b8;font-size:13px;text-transform:uppercase;letter-spacing:0.5px">Analytics &amp; Privacy</h4>
 
       <div class="row">
-        <label style="flex:1">Kestrel's Impact</label>
+        <label style="flex:1">Kingfisher's Impact</label>
         <span class="muted" id="settingsTotalImpact">—</span>
       </div>
-      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Total number of photos analyzed by Kestrel
+      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Total number of photos analyzed by Kingfisher
         on this computer.</div>
 
       <div style="border-top:1px solid #1d2230;margin:4px 0 2px"></div>
@@ -528,8 +532,8 @@
           <span class="muted" id="settingsAnalyticsLabel">Opt in</span>
         </label>
       </div>
-      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Helps improve Kestrel. No filenames,
-        paths, or images are ever shared. You can change this at any time.</div>
+      <div class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:8px">Telemetry is currently disabled in Kingfisher. No filenames,
+        paths, images, analytics, or crash uploads are sent automatically.</div>
     </div>
     <div class="settings-footer">
       <button id="settingsCancel">Cancel</button>
@@ -572,7 +576,7 @@
   <!-- Info dialog -->
   <dialog id="infoDlg">
     <div class="settings" style="width:min(560px,96vw)">
-      <h3 style="margin:0">Kestrel Database Info</h3>
+      <h3 style="margin:0">Kingfisher Database Info</h3>
       <div id="infoNotice" class="notice hidden" style="margin:0 0 8px"></div>
       <div id="infoContent" class="detail"
         style="max-height:50vh;overflow:auto;font-family:monospace;font-size:12px;white-space:pre;">—</div>
@@ -622,7 +626,7 @@
       <div class="analyze-dlg-options">
         <label class="inline" id="analyzeGpuLabel">
           <input id="analyzeUseGpu" type="checkbox" checked />
-          <span class="muted">Use GPU when available</span>
+          <span class="muted">Prefer hardware acceleration when supported</span>
         </label>
         <label class="inline">
           <input id="analyzeWildlife" type="checkbox" />
@@ -680,30 +684,15 @@
     </div>
   </dialog>
 
-  <!-- Analytics Consent dialog (shown once after first successful analysis) -->
+  <!-- Telemetry disabled notice (kept only so existing JS hooks remain valid) -->
   <dialog id="analyticsConsentDlg"
     style="width:min(560px,96vw);height:auto;max-height:88vh;overflow-x:hidden;overflow-y:auto;">
     <div class="analytics-dlg">
-      <h3>📊 Help Improve Project Kestrel</h3>
-      <p>Would you like to share anonymous usage data to help improve the app? This is completely optional and you can
-        change your mind at any time.</p>
-      <p><strong style="color:var(--text)">What would be shared (anonymously):</strong></p>
-      <ul>
-        <li>Number and size of images analyzed</li>
-        <li>File formats used (e.g. CR3, JPG)</li>
-        <li>Analysis duration</li>
-        <li>App version and OS type</li>
-      </ul>
-      <p><strong style="color:var(--text)">What is never shared:</strong></p>
-      <ul>
-        <li>Filenames, folder paths, or image content</li>
-        <li>Any personally identifiable information</li>
-      </ul>
-      <p class="analytics-note">Your machine is identified only by a random ID — no device name, username, or IP address
-        is stored or sent.</p>
+      <h3>📊 Telemetry is disabled</h3>
+      <p>Kingfisher currently sends no automatic telemetry, analytics, crash uploads, or installation pings.</p>
       <div class="analytics-btns">
-        <button id="analyticsDecline">No thanks</button>
-        <button id="analyticsAccept" class="primary">Yes, I'd like to help</button>
+        <button id="analyticsDecline">Close</button>
+        <button id="analyticsAccept" class="primary">OK</button>
       </div>
     </div>
   </dialog>
@@ -738,12 +727,12 @@
   <!-- Donation / Support dialog -->
   <dialog id="donateDlg">
     <div class="donate-dlg">
-      <div class="donate-dlg-icon"><img src="logo.png" alt="Kestrel Logo" /></div>
-      <h3>Kestrel has analyzed over <span id="donateCountDisplay">many</span> photos!</h3>
-      <p>Thank you for using Project Kestrel! I’m a solo student developer and birder who built Kestrel because I love taking wildlife photos — but not sorting through them. If Kestrel has been useful to you, please consider supporting its development, or share your thoughts and feedback!</p>
-      <p style="font-size:12px;color:#607080;">Project Kestrel is free &amp; open-source. Every <a href="https://github.com/SanjaySoniLV/ProjectKestrel" target="_blank">contribution</a> helps keep it growing.</p>
+      <div class="donate-dlg-icon"><img src="logo.png" alt="Kingfisher Logo" /></div>
+      <h3>Kingfisher has analyzed over <span id="donateCountDisplay">many</span> photos!</h3>
+      <p>Thank you for using Kingfisher! If it has been useful to you, please consider supporting development or sharing feedback.</p>
+      <p style="font-size:12px;color:#607080;">Kingfisher is free &amp; open-source. Every <a href="https://github.com/HackyPenguin/kingfisher" target="_blank">contribution</a> helps keep it growing.</p>
       <div class="donate-dlg-btns">
-        <button class="donate-main-btn" id="donateDlgGoBtn">💛 Donate via PayPal</button>
+        <button class="donate-main-btn" id="donateDlgGoBtn">💛 Buy Me a Coffee</button>
         <button class="primary" id="donateDlgFeedbackBtn" style="font-size:13px;padding:13px 20px;height:auto;">💬 Send Feedback</button>
       </div>
       <button id="donateDlgClose" class="donate-dlg-close-btn">Close</button>

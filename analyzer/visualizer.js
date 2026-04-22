@@ -1,7 +1,7 @@
     // State (desktop mode only)
     let rootPath = '';             // Absolute path to root folder (desktop pywebview mode)
     let rows = [];                 // CSV rows (objects)
-    let _scenedata = {};           // Map of rootPath → kestrel_scenedata.json contents
+    let _scenedata = {};           // Map of rootPath → kingfisher_scenedata.json contents
     let header = [];               // CSV header fields
     let scenes = [];               // Aggregated scene objects
     let dirty = false;             // Track unsaved edits
@@ -162,7 +162,7 @@
     (async function() {
       const apiReady = !hasPywebviewApi ? await waitForPywebview() : true;
       if (!apiReady) {
-        setStatus('Error: Desktop API unavailable. Please relaunch Project Kestrel.');
+        setStatus('Error: Desktop API unavailable. Please relaunch Kingfisher.');
         const compat = el('#compat');
         if (compat) compat.classList.remove('hidden');
         return;
@@ -431,7 +431,7 @@
         }
         
         if (!versionList) {
-          const resp = await fetch('https://projectkestrel.org/version.json', { cache: 'no-store' });
+          const resp = await fetch('https://api.github.com/repos/HackyPenguin/kingfisher/releases', { cache: 'no-store' });
           if (!resp.ok) return;
           versionList = await resp.json();
         }
@@ -439,7 +439,6 @@
         if (!Array.isArray(versionList) || versionList.length === 0) return;
         
         const latestVersion = versionList[0]; // first entry is latest
-        
         // Compare versions: check if latest name differs from current
         if (!latestVersion.name) return;
         const normalizedLocal = (currentVer || '').replace(/^v\(/ig, '').replace(/\)$/g, '').trim();
@@ -486,7 +485,7 @@
       const windowsNoteEl = document.getElementById('versionUpdateWindowsNote');
       if (windowsNoteEl) {
         if (platform === 'windows') {
-          windowsNoteEl.innerHTML = 'Windows users: Check for updates in the Microsoft Store within 1-3 days. If you used the traditional installer to install Kestrel, visit <a href="https://projectkestrel.org/download" target="_blank" style="color:#7ca3d9;text-decoration:underline;">projectkestrel.org/download</a> to manually update.';
+          windowsNoteEl.innerHTML = 'Windows users: Check for updates in the Microsoft Store within 1-3 days. If you installed Kingfisher outside the Store, use the <a href="https://github.com/HackyPenguin/kingfisher/releases" target="_blank" style="color:#7ca3d9;text-decoration:underline;">GitHub Releases page</a> for manual updates.';
           windowsNoteEl.style.display = 'block';
         } else {
           windowsNoteEl.style.display = 'none';
@@ -496,11 +495,11 @@
       // Download button
       const downloadBtn = document.getElementById('versionUpdateDownloadBtn');
       if (downloadBtn) {
-        downloadBtn.href = `https://projectkestrel.org/download?platform=${platform}`;
-        downloadBtn.textContent = platform === 'macos' ? 'Go to MacOS Download' : 'Go to Windows Download';
+        downloadBtn.href = 'https://github.com/HackyPenguin/kingfisher/releases';
+        downloadBtn.textContent = platform === 'macos' ? 'Open GitHub Releases (macOS)' : 'Open GitHub Releases';
         downloadBtn.onclick = (e) => {
           e.preventDefault();
-          window.open(`https://projectkestrel.org/download?platform=${platform}`, '_blank');
+          window.open('https://github.com/HackyPenguin/kingfisher/releases', '_blank');
         };
       }
       
@@ -3773,11 +3772,11 @@
             if (typeof window.pywebview.api.write_kestrel_csv === 'function') {
               const content = rowsToCsvString(exportCols, groupRows);
               const csvRes = await window.pywebview.api.write_kestrel_csv(rp, content);
-              if (!csvRes?.success) throw new Error(csvRes?.error || 'Failed to write kestrel_database.csv');
+              if (!csvRes?.success) throw new Error(csvRes?.error || 'Failed to write kingfisher_database.csv');
             }
 
             const sd = _normalizeScenedataForSave(rp, groupRows);
-            const res = await window.pywebview.api.write_kestrel_scenedata(rp, sd);
+            const res = await window.pywebview.api.write_kingfisher_scenedata(rp, sd);
             if (res.success) saved++;
             else {
               failed++;
@@ -4335,7 +4334,7 @@
     document.getElementById('analyticsDecline').addEventListener('click', () => handleAnalyticsConsent(false));
 
     // ─── Donation / Support ──────────────────────────────────────────────────────
-    const DONATE_URL = 'https://www.paypal.com/donate/?hosted_button_id=CXH4FE5AKZD3A';
+    const DONATE_URL = 'https://buymeacoffee.com/hackypenguin';
     const DONATE_THRESHOLD_KEY = 'kestrel-donate-thresholds-shown-v1';
 
     function openDonateLink() {
@@ -4449,17 +4448,17 @@
     // ─── End Donation ─────────────────────────────────────────────────────
 
     async function readMetadata() {
-      if (!rootPath || !window.pywebview?.api?.read_kestrel_metadata) {
-        return { error: 'kestrel_metadata.json not found. Open a folder in desktop mode first.' };
+      if (!rootPath || !window.pywebview?.api?.read_kingfisher_metadata) {
+        return { error: 'kingfisher_metadata.json not found. Open a folder in desktop mode first.' };
       }
       try {
-        const res = await window.pywebview.api.read_kestrel_metadata(rootPath);
+        const res = await window.pywebview.api.read_kingfisher_metadata(rootPath);
         if (!res?.success || !res?.metadata || typeof res.metadata !== 'object') {
-          return { error: res?.error || 'Unable to read kestrel_metadata.json' };
+          return { error: res?.error || 'Unable to read kingfisher_metadata.json' };
         }
         return res.metadata;
       } catch {
-        return { error: 'Unable to read kestrel_metadata.json' };
+        return { error: 'Unable to read kingfisher_metadata.json' };
       }
     }
     async function openInfo() {
@@ -4490,7 +4489,7 @@
     function inferRootFromAbsPath(p) {
       if (!p) return null;
       const s = sanitizePath(p);
-      const i = s.toLowerCase().lastIndexOf('/.kestrel/');
+      const i = s.toLowerCase().lastIndexOf('/.kingfisher/');
       if (i > 0) return s.substring(0, i);
       return null;
     }
@@ -4585,7 +4584,7 @@
           name: rootName,
           path: rootPath,
           has_kestrel: folderTreeRootHasKestrel,
-          kestrel_version: result.root_kestrel_version || '',
+          kingfisher_version: result.root_kingfisher_version || '',
           children: folderTreeData,
         };
         // Auto-expand the root
@@ -4614,10 +4613,10 @@
       return 0;
     }
 
-    /** Check if a node's kestrel_version is older than the current app version. */
+    /** Check if a node's recorded Kingfisher version is older than the current app version. */
     function isVersionOutdated(node) {
-      if (!node || !node.has_kestrel || !node.kestrel_version || !_appVersion) return false;
-      return compareVersions(node.kestrel_version, _appVersion) < 0;
+      if (!node || !node.has_kestrel || !node.kingfisher_version || !_appVersion) return false;
+      return compareVersions(node.kingfisher_version, _appVersion) < 0;
     }
 
     /** Show a custom context menu at (x, y) with given items. */
@@ -4656,15 +4655,15 @@
     /** Clear kestrel analysis data for a folder (with confirmation). */
     async function clearKestrelDataForFolder(folderPath, folderName, refreshCallback) {
       const confirmed = confirm(
-        `Are you sure you want to delete all Kestrel analysis data for "${folderName}"?\n\n` +
-        `This will permanently remove the .kestrel folder and all its contents (database, exports, thumbnails) ` +
+        `Are you sure you want to delete all Kingfisher analysis data for "${folderName}"?\n\n` +
+        `This will permanently remove the .kingfisher folder and all its contents (database, exports, thumbnails) ` +
         `in:\n${folderPath}\n\nThis action cannot be undone.`
       );
       if (!confirmed) return;
       try {
         const result = await window.pywebview.api.clear_kestrel_data(folderPath);
         if (result && result.success) {
-          showToast('Kestrel analysis data cleared for ' + folderName);
+          showToast('Kingfisher analysis data cleared for ' + folderName);
           if (refreshCallback) refreshCallback();
         } else {
           alert('Failed to clear analysis data:\n\n' + (result?.error || 'Unknown error'));
@@ -4755,7 +4754,7 @@
       row.className = 'tree-node-row ' + (effectiveHasKestrel ? 'has-kestrel' : 'no-kestrel') + (outdated ? ' version-outdated' : '') + (isInProgress ? ' in-progress' : '');
       if (node.path === treeActivePath) row.classList.add('active');
       if (isInProgress) row.title = 'Currently analyzing...';
-      else if (outdated) row.title = `Analyzed on Kestrel v${node.kestrel_version} (current: v${_appVersion})`;
+      else if (outdated) row.title = `Analyzed on Kingfisher v${node.kingfisher_version} (current: v${_appVersion})`;
 
       // Arrow toggle
       const arrow = document.createElement('span');
@@ -4861,12 +4860,12 @@
           e.stopPropagation();
           showContextMenu(e.clientX, e.clientY, [
             {
-              label: '🗑 Clear Kestrel Analysis Data',
+              label: '🗑 Clear Kingfisher Analysis Data',
               danger: true,
               action: () => {
                 clearKestrelDataForFolder(node.path, node.name, () => {
                   node.has_kestrel = false;
-                  node.kestrel_version = '';
+                  node.kingfisher_version = '';
                   renderFolderTree();
                 });
               }
@@ -4967,10 +4966,10 @@
           return false;
         }
 
-        // Helper: look up kestrel_version from tree node by path
+        // Helper: look up the recorded Kingfisher version from the tree node by path
         function findNodeVersion(node, targetPath) {
           if (!node) return '';
-          if (node.path === targetPath) return node.kestrel_version || '';
+          if (node.path === targetPath) return node.kingfisher_version || '';
           if (node.children) {
             for (const c of node.children) {
               const v = findNodeVersion(c, targetPath);
@@ -5004,7 +5003,7 @@
                 const nodeVer = findNodeVersion(folderTreeRootNode, origPath);
                 if (nodeVer && _appVersion && compareVersions(nodeVer, _appVersion) < 0) {
                   row.classList.add('version-outdated');
-                  row.title = `Analyzed on Kestrel v${nodeVer} (current: v${_appVersion}). Consider re-analyzing.`;
+                  row.title = `Analyzed on Kingfisher v${nodeVer} (current: v${_appVersion}). Consider re-analyzing.`;
                 }
               } else if (processedImgs > 0) {
                 row.classList.add('analyzed-partial');       // purple: started not finished
@@ -5064,7 +5063,7 @@
       const outdated = isVersionOutdated(node);
       row.className = 'adlg-node-row' + (selectedSet.has(node.path) ? ' queue-sel' : '') + (node.has_kestrel ? ' has-kestrel' : '') + (outdated ? ' version-outdated' : '');
       if (outdated) {
-        row.title = `Analyzed on Kestrel v${node.kestrel_version} (current: v${_appVersion}). Consider re-analyzing.`;
+        row.title = `Analyzed on Kingfisher v${node.kingfisher_version} (current: v${_appVersion}). Consider re-analyzing.`;
       }
 
       const arrow = document.createElement('span');
@@ -5082,7 +5081,7 @@
           if (row.classList.contains('analyzed-full')) {
             const confirmed = confirm(
               `"${node.name}" has already been fully analyzed.\n\n` +
-              `Re-analyzing will delete the existing analysis data (.kestrel folder) and process it again.\n\n` +
+              `Re-analyzing will delete the existing analysis data (.kingfisher folder) and process it again.\n\n` +
               `Continue?`
             );
             if (!confirmed) { cb.checked = false; return; }
@@ -5105,13 +5104,13 @@
       label.className = 'tree-label';
       label.textContent = node.name;
       if (!outdated) label.title = node.path;
-      else label.title = `v${node.kestrel_version} → v${_appVersion} (outdated)`;
+      else label.title = `v${node.kingfisher_version} → v${_appVersion} (outdated)`;
 
       // Version badge for outdated folders
       const versionBadge = document.createElement('span');
       if (outdated) {
         versionBadge.style.cssText = 'font-size:10px;color:var(--ok);opacity:0.7;margin-left:4px;font-style:italic;';
-        versionBadge.textContent = `v${node.kestrel_version}`;
+        versionBadge.textContent = `v${node.kingfisher_version}`;
       }
 
       // Attach path for async inspection and add count placeholder
@@ -5135,13 +5134,13 @@
           const folderName = node.name;
           showContextMenu(e.clientX, e.clientY, [
             {
-              label: '🗑 Clear Kestrel Analysis Data',
+              label: '🗑 Clear Kingfisher Analysis Data',
               danger: true,
               action: () => {
                 clearKestrelDataForFolder(node.path, folderName, () => {
                   // Update the node state in-memory
                   node.has_kestrel = false;
-                  node.kestrel_version = '';
+                  node.kingfisher_version = '';
                   // Re-render the dialog tree
                   const treeEl = document.getElementById('analyzeDlgTree');
                   if (treeEl && folderTreeRootNode) {
@@ -5541,7 +5540,7 @@
       let queueDismissed = false;
       if (hasQueueRecovery) {
         const doRestore = confirm(
-          `Kestrel detected an interrupted analysis queue with ${restorePaths.length} folder${restorePaths.length === 1 ? '' : 's'}.\n\nRestore it now?`
+          `Kingfisher detected an interrupted analysis queue with ${restorePaths.length} folder${restorePaths.length === 1 ? '' : 's'}.\n\nRestore it now?`
         );
         if (doRestore) {
           try {
@@ -5567,7 +5566,7 @@
 
       if (hadUncleanShutdown) {
         const sendReport = confirm(
-          'Kestrel detected that the previous session did not shut down cleanly.\n\nSend a crash report now?'
+          'Kingfisher detected that the previous session did not shut down cleanly.\n\nSend a crash report now?'
         );
         if (sendReport) {
           try {
@@ -5835,7 +5834,7 @@
           treeRescanNeeded = true;
           scheduleAutoRefresh(p);
           // First-time folder completion → offer analytics consent if not yet asked
-          if (!getSetting('analytics_consent_shown', false)) showAnalyticsConsentDialog();
+          showAnalyticsConsentDialog();
         }
       }
       if (treeRescanNeeded) {
@@ -6286,9 +6285,9 @@
             rows = rows.filter(r => normPath(r.__rootPath) !== rootN);
             for (const r of newRows) { r.__rootPath = root; r.__folderSlot = slot; }
             rows = rows.concat(newRows);
-            if (hasPywebviewApi && window.pywebview?.api?.read_kestrel_scenedata) {
+            if (hasPywebviewApi && window.pywebview?.api?.read_kingfisher_scenedata) {
               try {
-                const sdRes = await window.pywebview.api.read_kestrel_scenedata(root);
+                const sdRes = await window.pywebview.api.read_kingfisher_scenedata(root);
                 if (sdRes?.success) _scenedata[root] = sdRes.data;
               } catch (_) {}
             }
@@ -6335,7 +6334,13 @@
         folderTreeData = result.tree;
         folderTreeRootHasKestrel = !!result.root_has_kestrel;
         const rootName = rootPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || rootPath;
-        folderTreeRootNode = { name: rootName, path: rootPath, has_kestrel: folderTreeRootHasKestrel, children: folderTreeData };
+        folderTreeRootNode = {
+          name: rootName,
+          path: rootPath,
+          has_kestrel: folderTreeRootHasKestrel,
+          kingfisher_version: result.root_kingfisher_version || '',
+          children: folderTreeData,
+        };
         // Apply any transient kestrel markings so nodes recently queued/started
         // are shown as having kestrel until the real scan state differs.
         try {
@@ -6367,7 +6372,7 @@
             row.classList.add('in-progress');
             _tempKestrelPaths.add(normPath); // prevent checkbox removal on next rescan
             
-            // Ensure checkbox exists (even if .kestrel doesn't)
+            // Ensure checkbox exists (even if .kingfisher doesn't)
             if (!row.querySelector('.tree-cb')) {
               const cb = document.createElement('input');
               cb.type = 'checkbox';
@@ -6620,9 +6625,9 @@
           for (const r of newRows) { r.__rootPath = root; r.__folderSlot = currentSlot; }
           rows = rows.concat(newRows);
           // Load scenedata for this folder
-          if (hasPywebviewApi && window.pywebview?.api?.read_kestrel_scenedata) {
+          if (hasPywebviewApi && window.pywebview?.api?.read_kingfisher_scenedata) {
             try {
-              const sdRes = await window.pywebview.api.read_kestrel_scenedata(root);
+              const sdRes = await window.pywebview.api.read_kingfisher_scenedata(root);
               if (sdRes?.success) _scenedata[root] = sdRes.data;
             } catch (_) {}
           }
@@ -6686,9 +6691,9 @@
         _sceneActiveCropIndexByImage.clear();
         
         // Load scenedata for this folder
-        if (hasPywebviewApi && window.pywebview?.api?.read_kestrel_scenedata) {
+        if (hasPywebviewApi && window.pywebview?.api?.read_kingfisher_scenedata) {
           try {
-            const sdRes = await window.pywebview.api.read_kestrel_scenedata(loadedRoot);
+            const sdRes = await window.pywebview.api.read_kingfisher_scenedata(loadedRoot);
             if (sdRes?.success) _scenedata[loadedRoot] = sdRes.data;
           } catch (_) {}
         }
@@ -6740,11 +6745,11 @@
       } catch (e) {
         const errorMsg = (e.message || String(e)).replace(/^Error: /, '');
         // If the folder tree is already visible the user may have clicked a parent folder
-        // intentionally (no .kestrel there). Show a soft status message instead of an alert.
+        // intentionally (no .kingfisher there). Show a soft status message instead of an alert.
         if (folderTreeData) {
-          setStatus(`No Kestrel database in this folder — select one that shows 📂 in the tree`);
+          setStatus(`No Kingfisher database in this folder — select one that shows 📂 in the tree`);
         } else {
-          alert(`Could not load Kestrel database from this folder.\n\nMake sure:\n1. The folder has been analyzed with Kestrel Analyzer\n2. The .kestrel folder exists (it may be hidden on macOS)\n3. You selected the correct folder\n\nTip: On macOS, .kestrel folders are hidden by default. You can:\n• Press Cmd+Shift+. (period) to show hidden files in Finder\n• Or select the parent folder that contains the .kestrel folder\n\nError: ${errorMsg}`);
+          alert(`Could not load Kingfisher data from this folder.\n\nMake sure:\n1. The folder has already been analyzed with Kingfisher\n2. The .kingfisher folder exists (it may be hidden on macOS)\n3. You selected the correct folder\n\nTip: On macOS, .kingfisher folders are hidden by default. You can:\n• Press Cmd+Shift+. (period) to show hidden files in Finder\n• Or select the parent folder that contains the .kingfisher folder\n\nError: ${errorMsg}`);
           setStatus('Failed to load database');
         }
       }
@@ -6789,10 +6794,10 @@
               // (folderTreeRootHasKestrel is set inside scanFolderTree).
               // Only attempt CSV load if the root itself is an analyzed folder.
               if (treeScanned && !folderTreeRootHasKestrel) {
-                // Tree scan succeeded but root has no .kestrel — it's a parent folder.
+                // Tree scan succeeded but root has no .kingfisher — it's a parent folder.
                 setStatus('Select a folder from the tree below to load its scenes');
               } else {
-                // Either scan wasn't available, or the root itself has .kestrel — load it.
+                // Either scan wasn't available, or the root itself has .kingfisher — load it.
                 await loadFolderFromPath(folderPath);
               }
               return; // Success - Python API handled everything
@@ -7052,7 +7057,7 @@
 
     // Init
     loadVersionBadge();
-    setStatus('Open your photo folder (the one that contains .kestrel) or select kestrel_database.csv');
+    setStatus('Open your photo folder (the one that contains .kingfisher) or select kingfisher_database.csv');
     hydrateSettingsFromServer();
 
     // If a queue was running before this page loaded (e.g. page refresh), re-attach the polling
@@ -7154,39 +7159,39 @@
           if (_dlgReanalyze.has(p)) continue; // already confirmed at selection time
           const node = folderTreeRootNode ? findNode(folderTreeRootNode, p) : null;
           if (node && isVersionOutdated(node)) {
-            outdatedPaths.push({ path: p, name: node.name, version: node.kestrel_version });
+            outdatedPaths.push({ path: p, name: node.name, version: node.kingfisher_version });
           }
         }
 
         if (outdatedPaths.length > 0) {
           const names = outdatedPaths.map(o => `  • ${o.name} (v${o.version})`).join('\n');
           const confirmed = confirm(
-            `The following folder(s) were analyzed on an older version of Kestrel:\n\n${names}\n\n` +
+            `The following folder(s) were analyzed on an older version of Kingfisher:\n\n${names}\n\n` +
             `Current version: v${_appVersion}\n\n` +
-            `Re-analyzing will DELETE existing analysis data (.kestrel folder) before proceeding.\n\n` +
+            `Re-analyzing will DELETE existing analysis data (.kingfisher folder) before proceeding.\n\n` +
             `Continue?`
           );
           if (!confirmed) return;
-          // Clear .kestrel for outdated folders before re-analysis
+          // Clear .kingfisher for outdated folders before re-analysis
           for (const o of outdatedPaths) {
             try {
               await window.pywebview.api.clear_kestrel_data(o.path);
               // Update in-memory node
               const node = findNode(folderTreeRootNode, o.path);
-              if (node) { node.has_kestrel = false; node.kestrel_version = ''; }
+              if (node) { node.has_kestrel = false; node.kingfisher_version = ''; }
             } catch (e) {
               console.warn('Failed to clear kestrel data for', o.path, e);
             }
           }
         }
 
-        // Clear .kestrel for fully-analyzed re-queue folders (confirmed at selection time)
+        // Clear .kingfisher for fully-analyzed re-queue folders (confirmed at selection time)
         for (const p of _dlgReanalyze) {
           if (!paths.includes(p)) continue;
           try {
             await window.pywebview.api.clear_kestrel_data(p);
             const node = folderTreeRootNode ? findNode(folderTreeRootNode, p) : null;
-            if (node) { node.has_kestrel = false; node.kestrel_version = ''; }
+            if (node) { node.has_kestrel = false; node.kingfisher_version = ''; }
           } catch (e) {
             console.warn('Failed to clear kestrel data for re-analyze', p, e);
           }
@@ -7277,7 +7282,7 @@
             // UI-driven settings writes include the persisted legal flags.
             await hydrateSettingsFromServer();
             document.getElementById('legalNotice').classList.add('hidden');
-            showToast('Terms accepted. Welcome to Project Kestrel!', 4000);
+            showToast('Terms accepted. Welcome to Kingfisher!', 4000);
           }
         } catch (e) {
           console.error('Failed to agree to legal terms', e);
@@ -7599,7 +7604,7 @@
             </div>
           </div>
           <div style="background:#1a1f10;border:1px solid #3a4020;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#b0c070;line-height:1.5;">
-            &#9888; <b>Write metadata before importing into your photo editor.</b> Most catalogues ignore new sidecar files once a photo is already imported. Write first, then import, for best results.<br>Kestrel will not overwrite XMP files generated by other software without your permission.
+            &#9888; <b>Write metadata before importing into your photo editor.</b> Most catalogues ignore new sidecar files once a photo is already imported. Write first, then import, for best results.<br>Kingfisher will not overwrite XMP files generated by other software without your permission.
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;">
             <button id="wmCancel" style="padding:8px 16px;border:1px solid #3a465f;background:#1c2433;color:#e8f0f8;border-radius:6px;cursor:pointer;font-size:13px;">Cancel</button>
@@ -7788,19 +7793,19 @@
 
     const TUTORIAL_PART1 = [
       {
-        title: 'Welcome to Project Kestrel!',
-        body: 'Project Kestrel uses machine learning to organize your photos, helping you review them more efficiently, search through your library, and quickly decide which ones to edit and share.<br><br>This guided tutorial will walk you through the core features of Kestrel.',
+        title: 'Welcome to Kingfisher!',
+        body: 'Kingfisher uses machine learning to organize your photos, helping you review them more efficiently, search through your library, and quickly decide which ones to edit and share.<br><br>This guided tutorial will walk you through the core features of Kingfisher.',
         target: null,
       },
       {
         title: 'First, Analyze Your Photos',
-        body: 'Click <b>Analyze Folders\u2026</b> to select folders that contain your bird photos. Kestrel groups them by scene, detects birds using AI, guesses the bird species and family, and scores quality automatically.',
+        body: 'Click <b>Analyze Folders\u2026</b> to select folders that contain your bird photos. Kingfisher groups them by scene, detects birds using AI, guesses the bird species and family, and scores quality automatically.'},{
         target: '#analyzeQueueBtn',
         position: 'bottom',
       },
       {
         title: 'Open an Analyzed Folder',
-        body: 'Once you\u2019ve analyzed a folder with Kestrel, click <b>Open Folder\u2026</b> to browse it. Kestrel loads your scenes.<br><br>We\u2019ll auto-load some <b>sample bird photos</b> next so you can see it in action!',
+        body: 'Once you\u2019ve analyzed a folder with Kingfisher, click <b>Open Folder\u2026</b> to browse it. Kingfisher loads your scenes and helps you focus on the best shots first.',
         target: '#pickFolder',
         position: 'bottom',
       },
@@ -7809,7 +7814,7 @@
     const TUTORIAL_PART2 = [
       {
         title: 'Your Photos, Organized by Scene',
-        body: 'Kestrel organizes your photos into <b>scenes</b> \u2014 groups of similar images captured in the same burst. The scene grid shows these scenes in the order they were taken.',
+        body: 'Kingfisher organizes your photos into <b>scenes</b> \u2014 groups of similar images captured in the same burst. The scene grid shows these scenes in the order they were taken.',
         nudge: 'Click on a scene to open it!',
         target: '#sceneGrid .card',
         position: 'right',
@@ -7826,7 +7831,7 @@
       },
       {
         title: 'Ratings and Culling Decisions',
-        body: 'Kestrel computes <b>star ratings</b> based on each image\u2019s quality score. Click the stars to set your own. <span style="color:#6aa0ff">Blue stars</span> = AI rating \u00b7 <span style="color:#f5c542">Gold stars</span> = your manual override.<br><br>Use the <b>Accept \u00b7 Undecided \u00b7 Reject</b> buttons to make a culling decision for each photo. These will come in handy with the Culling Assistant later!',
+        body: 'Kingfisher computes <b>star ratings</b> based on each image\u2019s quality score. Click the stars to set your own. <span style="color:#6aa0ff">Blue stars</span> = AI rating \u00b7 <span style="color:#f5c542">Gold stars</span> = your manual override.<br><br>Use the <b>Accept \u00b7 Undecided \u00b7 Reject</b> buttons to make a culling decision for each photo. These will come in handy with the Culling Assistant later!',
         nudge: 'Mark a photo as Accepted or Rejected to continue!',
         target: '#sceneInfoBar',
         position: 'top-left',
@@ -7835,7 +7840,7 @@
       },
       {
         title: 'Keyboard Shortcuts',
-        body: 'Kestrel has keyboard shortcuts to make reviewing photos faster. The shortcuts are listed above \u2014 try some out before continuing!',
+        body: 'Kingfisher has keyboard shortcuts to make reviewing photos faster. The shortcuts are listed above \u2014 try some out before continuing!',
         target: '#sceneShortcutLegend',
         position: 'bottom',
         inDialog: true,
@@ -7843,7 +7848,7 @@
       },
       {
         title: 'Other Scene Features',
-        body: 'A few more things you can do once you\u2019re browsing your <b>own photos</b> (these won\u2019t work on the sample images):<br><br>\u2022 <b>Click and drag</b> on the full image to load the RAW file and zoom in<br>\u2022 Edit the <b>scene name</b> and <b>tags</b> at the top<br>\u2022 Press <kbd>Space</kbd> to open the photo in your preferred photo editor<br>\u2022 Use <b>\u2702 Split Scene</b> if Kestrel accidentally merged two different scenes<br><br>Click <b>Close</b> to continue!',
+        body: 'A few more things you can do while browsing your photos:<br><br>\u2022 <b>Click and drag</b> on the full image to load the RAW file and zoom in<br>\u2022 Edit the <b>scene name</b> and <b>tags</b> at the top<br>\u2022 Press <kbd>Space</kbd> to open the photo in your preferred photo editor<br>\u2022 Use <b>\u2702 Split Scene</b> if Kingfisher accidentally merged two different scenes<br><br>Click <b>Close</b> to continue!',
         nudge: 'Close the scene dialog to continue.',
         target: '#closeDlg',
         position: 'bottom',
@@ -7858,14 +7863,14 @@
       },
       {
         title: 'Merging Scenes',
-        body: 'The two highlighted scenes above were actually one continuous burst that Kestrel split in two. Hold <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> and click both cards to select them, then click <b>Merge selected scenes</b> to combine them back into one.<br><br>You can also <kbd>Shift+Click</kbd> to range-select a group of scenes at once.',
+        body: 'The two highlighted scenes above were actually one continuous burst that Kingfisher split in two. Hold <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> and click both cards to select them, then click <b>Merge selected scenes</b> to combine them back into one.<br><br>You can also <kbd>Shift+Click</kbd> to range-select a group of scenes at once.',
         target: '#sceneGrid .card:nth-child(2)',
         highlightFirst: '#sceneGrid .card:nth-child(1)',
         position: 'bottom',
       },
       {
         title: 'Write Photo Metadata',
-        body: 'Click <b>Write Photo Metadata</b> to export Kestrel\u2019s star ratings and Accept/Reject decisions into XMP sidecar files alongside your photos. These <code>.xmp</code> files are understood natively by <b>Adobe Lightroom</b>, <b>darktable</b>, <b>Capture One</b>, and other editors.<br><br>\u26a0\ufe0f <b>Write photo metadata <em>before</em> importing into your photo editor</b> \u2014 most catalogues ignore new sidecar files once a photo is already imported. If a sidecar was already created by another application, Kestrel will ask before overwriting it.',
+        body: 'Click <b>Write Photo Metadata</b> to export Kingfisher\u2019s star ratings and Accept/Reject decisions into XMP sidecar files alongside your photos. These <code>.xmp</code> files are understood natively by <b>Adobe Lightroom</b>, <b>darktable</b>, <b>Capture One</b>, and other editors.<br><br>\u26a0\ufe0f <b>Write photo metadata <em>before</em> importing into your photo editor</b> \u2014 most catalogues ignore new sidecar files once a photo is already imported. If a sidecar was already created by another application, Kingfisher will ask before overwriting it.',
         target: '.write-metadata-btn',
         position: 'bottom',
       },
@@ -7888,7 +7893,7 @@
       },
       {
         title: 'Please Send Feedback!',
-        body: 'I (the person who made Project Kestrel) would really love to hear from you! Please tell me if you found the app useful, or if you find any bugs or have suggestions for improvements.<br><br>Thank you for trying Kestrel!',
+        body: 'I (the person who made Kingfisher) would really love to hear from you! Please tell me if you found the app useful, or if you find any bugs or have suggestions for improvements.<br><br>Thank you for trying Kingfisher!',
         target: '#openFeedback',
         position: 'top',
       },
@@ -7897,7 +7902,6 @@
     let _tutStep = 0;
     let _tutSteps = [];
     let _tutPart = 0;               // 0 = not started, 1 = part1, 2 = part2
-    let _tutSampleLoaded = false;    // track if we auto-loaded sample sets
     let _tutCleanupFn = null;        // cleanup function for current waitFor listeners
     let _tutInDialog  = false;       // true while tutorial card is inside the scene dialog
 
@@ -8036,6 +8040,13 @@
         if (_hfEl) _hfEl.classList.add('highlight-target');
       }
 
+      if (hasWaitFor && (!target || (target.offsetWidth === 0 && target.offsetHeight === 0))) {
+        _tutEl('#tutorialBody').innerHTML = step.body + '<br><br><span style="color:var(--brand);font-weight:600">Load an analyzed folder and replay the tutorial to see this step highlighted interactively.</span>';
+        nudge.style.display = 'none';
+        nextBtn.style.display = '';
+        hasWaitFor = false;
+      }
+
       if (!target || (target.offsetWidth === 0 && target.offsetHeight === 0)) {
         // Center-screen card, full backdrop
         hl.style.display = 'none';
@@ -8154,8 +8165,7 @@
         // End of current part
         if (_tutPart === 1) {
           _closeMainTutorial();
-          // Transition to Part 2: auto-load sample sets then start part 2
-          _autoLoadSamplesAndStartPart2();
+          startMainTutorial(2, 0);
         } else {
           _closeMainTutorial();
         }
@@ -8166,48 +8176,6 @@
 
     function _tutGoBack() {
       if (_tutStep > 0) { _tutStep--; _showMainTutStep(_tutStep); }
-    }
-
-    async function _autoLoadSamplesAndStartPart2() {
-      if (!hasPywebviewApi) { startMainTutorial(2, 0); return; }
-      try {
-        console.log('[tutorial] Calling get_sample_sets_paths()...');
-        var res = await window.pywebview.api.get_sample_sets_paths();
-        console.log('[tutorial] get_sample_sets_paths() response:', res);
-        
-        if (res && res.success && res.paths && res.paths.length > 0) {
-          console.log('[tutorial] Found', res.paths.length, 'sample sets:', res.paths);
-          _tutSampleLoaded = true;
-          // Scan the parent folder so the folder tree sidebar shows backyard_birds + forest_trail
-          var sampleParent = res.paths[0].replace(/[/\\][^/\\]+$/, '');
-          console.log('[tutorial] Sample parent folder:', sampleParent);
-          try { 
-            await scanFolderTree(sampleParent);
-            console.log('[tutorial] Folder tree scanned successfully');
-          } catch(e) {
-            console.warn('[tutorial] Folder tree scan error:', e);
-          }
-          try {
-            console.log('[tutorial] Loading', res.paths.length, 'folders via loadMultipleFolders...');
-            await loadMultipleFolders(res.paths);
-            console.log('[tutorial] Folders loaded successfully');
-          } catch(e) {
-            console.warn('[tutorial] loadMultipleFolders error:', e);
-            throw e;
-          }
-          // Small delay for render, then start Part 2
-          console.log('[tutorial] Starting Part 2 of tutorial');
-          setTimeout(function() { startMainTutorial(2, 0); }, 600);
-        } else {
-          // No sample sets found -- just start Part 2 anyway
-          console.warn('[tutorial] No sample sets found. res.success=', res?.success, 'res.paths=', res?.paths);
-          startMainTutorial(2, 0);
-        }
-      } catch (e) {
-        console.warn('[tutorial] _autoLoadSamplesAndStartPart2 error:', e);
-        console.error(e);
-        startMainTutorial(2, 0);
-      }
     }
 
     // Wire up tutorial buttons
@@ -8222,9 +8190,8 @@
     _tutEl('#tutorialBack').addEventListener('click', _tutGoBack);
     _tutEl('#tutorialSkip').addEventListener('click', function() {
       if (_tutPart === 1) {
-        // Skipping part 1 still transitions to part 2 with samples
         _closeMainTutorial();
-        _autoLoadSamplesAndStartPart2();
+        startMainTutorial(2, 0);
       } else {
         _closeMainTutorial();
       }

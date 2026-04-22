@@ -1,9 +1,9 @@
-# Project Kestrel - Development & Packaging Guide
+# Kingfisher - Development & Packaging Guide
 
 ## Project Structure
 
 ```
-ProjectKestrel/
+Kingfisher/
 ├── analyzer/                    # Analyzer application (GUI + CLI)
 │   ├── gui_app.py              # PyQt6 GUI entry point
 │   ├── cli.py                  # CLI entry point (headless mode)
@@ -51,8 +51,8 @@ ProjectKestrel/
 ### 1. Clone and Install Dependencies
 
 ```bash
-git clone https://github.com/SanjaySoniLV/ProjectKestrel.git
-cd ProjectKestrel
+git clone https://github.com/SanjaySoniLV/Kingfisher.git
+cd Kingfisher
 pip install -r requirements.txt
 ```
 
@@ -104,7 +104,7 @@ pip install pyinstaller
 ### Build Analyzer EXE
 
 ```bash
-cd ProjectKestrel
+cd Kingfisher
 pyinstaller packaging/analyzer/kestrel_analyzer.spec
 ```
 
@@ -113,7 +113,7 @@ Output: `dist/kestrel_analyzer/kestrel_analyzer.exe`
 ### Build Visualizer EXE
 
 ```bash
-cd ProjectKestrel
+cd Kingfisher
 pyinstaller packaging/visualizer/kestrel_visualizer.spec
 ```
 

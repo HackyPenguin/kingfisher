@@ -5,9 +5,10 @@ visualizer can show folder progress without loading models.
 """
 from __future__ import annotations
 
-import os
-from typing import Dict, List
 import math
+import os
+from typing import Dict, List, Set
+
 try:
     import pandas as pd  # pandas is fast for reading CSVs
 except Exception:
@@ -20,25 +21,55 @@ except Exception:
     # If kestrel_analyzer isn't available, fall back to reasonable defaults.
     RAW_EXTENSIONS = ['.cr2', '.cr3', '.nef', '.arw', '.dng', '.orf', '.raf', '.rw2', '.pef', '.sr2', '.x3f']
     JPEG_EXTENSIONS = ['.jpg', '.jpeg', '.png']
-    KESTREL_DIR_NAME = '.kestrel'
-    DATABASE_NAME = 'kestrel_database.csv'
+    KESTREL_DIR_NAME = '.kingfisher'
+    DATABASE_NAME = 'kingfisher_database.csv'
+
+
+def _scan_images_in_folder(folder: str) -> tuple[list[str], int, bool]:
+    """Scan once and prefer RAW files when present, otherwise JPEG/PNG."""
+    try:
+        raw_files: list[str] = []
+        jpeg_files: list[str] = []
+        raw_exts = set(RAW_EXTENSIONS)
+        jpeg_exts = set(JPEG_EXTENSIONS)
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                try:
+                    if not entry.is_file():
+                        continue
+                except Exception:
+                    continue
+                ext = os.path.splitext(entry.name)[1].lower()
+                if ext in raw_exts:
+                    raw_files.append(entry.name)
+                elif ext in jpeg_exts:
+                    jpeg_files.append(entry.name)
+        raw_files.sort()
+        jpeg_files.sort()
+        return (raw_files if raw_files else jpeg_files), len(raw_files), bool(raw_files)
+    except Exception:
+        return [], 0, False
 
 
 def _list_images_in_folder(folder: str) -> list:
+    files, _, _ = _scan_images_in_folder(folder)
+    return files
+
+
+def _read_processed_filenames(kestrel_dir: str, db_path: str) -> Set[str]:
+    if pd is not None:
+        try:
+            df = pd.read_csv(db_path, usecols=['filename'])
+            return set(df['filename'].astype(str).values)
+        except Exception:
+            pass
     try:
-        files = [
-            f for f in os.listdir(folder)
-            if os.path.isfile(os.path.join(folder, f)) and os.path.splitext(f)[1].lower() in RAW_EXTENSIONS
-        ]
-        if not files:
-            files = [
-                f for f in os.listdir(folder)
-                if os.path.isfile(os.path.join(folder, f)) and os.path.splitext(f)[1].lower() in JPEG_EXTENSIONS
-            ]
-        files.sort()
-        return files
+        db, _ = load_database(kestrel_dir, analyzer_name='visualizer-inspector')
+        if not db.empty and 'filename' in db.columns:
+            return {str(v) for v in db['filename'].values}
     except Exception:
-        return []
+        pass
+    return set()
 
 
 def inspect_folder(path: str) -> Dict[str, int | str | bool]:
@@ -54,7 +85,7 @@ def inspect_folder(path: str) -> Dict[str, int | str | bool]:
         p = p[:-1]
     if not p:
         return result
-    # If caller passed the .kestrel folder itself, use the parent as root
+    # If caller passed the .kingfisher folder itself, use the parent as root
     base_name = os.path.basename(p)
     if base_name == KESTREL_DIR_NAME:
         root = os.path.dirname(p)
@@ -62,8 +93,8 @@ def inspect_folder(path: str) -> Dict[str, int | str | bool]:
         root = p
 
     result['root'] = root
-    files = _list_images_in_folder(root)
-    total = len(files)
+    files, raw_total, has_raw = _scan_images_in_folder(root)
+    total = raw_total if has_raw else len(files)
     result['total'] = total
 
     kestrel_dir = os.path.join(root, KESTREL_DIR_NAME)
@@ -72,31 +103,8 @@ def inspect_folder(path: str) -> Dict[str, int | str | bool]:
     if os.path.isfile(db_path):
         result['has_kestrel'] = True
         try:
-            # Fast-path: use pandas to read only the filename column if available
-            processed = 0
-            if pd is not None:
-                try:
-                    df = pd.read_csv(db_path, usecols=['filename'])
-                    processed_set = set(df['filename'].astype(str).values)
-                    processed = sum(1 for f in files if f in processed_set)
-                except Exception:
-                    # Fall back to load_database if available
-                    try:
-                        db, _ = load_database(kestrel_dir, analyzer_name='visualizer-inspector')
-                        if not db.empty and 'filename' in db.columns:
-                            processed_set = set(db['filename'].values)
-                            processed = sum(1 for f in files if f in processed_set)
-                    except Exception:
-                        processed = 0
-            else:
-                try:
-                    db, _ = load_database(kestrel_dir, analyzer_name='visualizer-inspector')
-                    if not db.empty and 'filename' in db.columns:
-                        processed_set = set(db['filename'].values)
-                        processed = sum(1 for f in files if f in processed_set)
-                except Exception:
-                    processed = 0
-            result['processed'] = int(processed)
+            processed_set = _read_processed_filenames(kestrel_dir, db_path)
+            result['processed'] = int(sum(1 for f in files if f in processed_set))
         except Exception:
             # Fail silently; the visualizer should still work without DB details
             result['processed'] = 0
