@@ -104,7 +104,7 @@ UK_SPECIES: dict[str, str] = {
     "Falco tinnunculus": "Kestrel",
     "Falco columbarius": "Merlin",
     "Falco subbuteo": "Hobby",
-    "Falco peregrinus": "Peregrine",
+    "Falco peregrinus": "Kingfisher",
     # --- Rails ---
     "Rallus aquaticus": "Water Rail",
     "Crex crex": "Corncrake",

@@ -1,4 +1,4 @@
-"""JavaScript API bridge for Project Kestrel visualizer.
+"""JavaScript API bridge for Kingfisher visualizer.
 
 Provides the Api class that exposes methods to the pywebview JavaScript layer
 and serves as the bridge between the web UI and native OS operations.
@@ -194,7 +194,7 @@ class Api:
             return cached
 
         mode = 'legacy_auto_bright_v1'
-        meta_path = os.path.join(root_key, '.kestrel', 'kestrel_metadata.json')
+        meta_path = os.path.join(root_key, '.kingfisher', 'kingfisher_metadata.json')
         try:
             if os.path.isfile(meta_path):
                 with open(meta_path, 'r', encoding='utf-8') as mf:
@@ -309,19 +309,19 @@ class Api:
             self._log_security_reject(context, 'Invalid folder path', folder_path=folder_path)
             return '', '', '', 'Invalid folder path'
 
-        is_kestrel_folder = os.path.basename(folder_norm).lower() == '.kestrel'
+        is_kestrel_folder = os.path.basename(folder_norm).lower() == '.kingfisher'
         root_candidate = os.path.dirname(folder_norm) if is_kestrel_folder else folder_norm
         root_real, err = self._validate_root_dir(root_candidate, context=context, require_exists=require_root_exists)
         if err:
             return '', '', '', err
 
-        kestrel_candidate = folder_norm if is_kestrel_folder else os.path.join(root_real, '.kestrel')
+        kestrel_candidate = folder_norm if is_kestrel_folder else os.path.join(root_real, '.kingfisher')
         kestrel_real = os.path.realpath(os.path.abspath(kestrel_candidate))
-        expected_kestrel = os.path.realpath(os.path.join(root_real, '.kestrel'))
+        expected_kestrel = os.path.realpath(os.path.join(root_real, '.kingfisher'))
         if kestrel_real != expected_kestrel:
             self._log_security_reject(
                 context,
-                'Resolved .kestrel path mismatch',
+                'Resolved .kingfisher path mismatch',
                 folder_path=folder_path,
                 kestrel_path=kestrel_real,
                 expected=expected_kestrel,
@@ -519,10 +519,10 @@ class Api:
             return None
 
     def read_kestrel_csv(self, folder_path):
-        """Read the kestrel_database.csv from the given folder path.
+        """Read the kingfisher_database.csv from the given folder path.
         
         Args:
-            folder_path: Absolute path to folder (may be parent folder or .kestrel folder itself)
+            folder_path: Absolute path to folder (may be parent folder or .kingfisher folder itself)
             
         Returns:
             dict with 'success': bool, 'data': str (CSV content), 'error': str, 'path': str, 'root': str
@@ -542,12 +542,12 @@ class Api:
                     'data': ''
                 }
 
-            csv_path = os.path.join(kestrel_dir, 'kestrel_database.csv')
+            csv_path = os.path.join(kestrel_dir, 'kingfisher_database.csv')
             if not os.path.exists(csv_path):
                 
                 return {
                     'success': False,
-                    'error': f'Could not find kestrel_database.csv at: {csv_path}',
+                    'error': f'Could not find kingfisher_database.csv at: {csv_path}',
                     'path': csv_path,
                     'data': ''
                 }
@@ -574,18 +574,18 @@ class Api:
                 'data': ''
             }
 
-    def read_kestrel_metadata(self, folder_path: str):
-        """Read kestrel_metadata.json from a folder's .kestrel directory."""
+    def read_kingfisher_metadata(self, folder_path: str):
+        """Read kingfisher_metadata.json from a folder's .kingfisher directory."""
         try:
             _, kestrel_dir, _, err = self._resolve_folder_root_and_kestrel(
                 folder_path,
-                context='read_kestrel_metadata',
+                context='read_kingfisher_metadata',
                 require_root_exists=True,
             )
             if err:
                 return {'success': False, 'error': err}
 
-            meta_path = os.path.join(kestrel_dir, 'kestrel_metadata.json')
+            meta_path = os.path.join(kestrel_dir, 'kingfisher_metadata.json')
             if not os.path.isfile(meta_path):
                 return {'success': False, 'error': 'Metadata file not found'}
             with open(meta_path, 'r', encoding='utf-8') as f:
@@ -595,7 +595,7 @@ class Api:
             return {'success': False, 'error': str(e)}
 
     def clear_kestrel_data(self, folder_path: str):
-        """Delete the contents of the .kestrel folder within the given folder."""
+        """Delete the contents of the .kingfisher folder within the given folder."""
         try:
             _, kestrel_dir, _, err = self._resolve_folder_root_and_kestrel(
                 folder_path,
@@ -606,11 +606,11 @@ class Api:
                 return {'success': False, 'error': err}
 
             if not os.path.isdir(kestrel_dir):
-                return {'success': True, 'message': 'No .kestrel folder found'}
+                return {'success': True, 'message': 'No .kingfisher folder found'}
 
             shutil.rmtree(kestrel_dir)
-            print(f"[API] clear_kestrel_data() -> Removed .kestrel from {kestrel_dir}", flush=True)
-            return {'success': True, 'message': 'Kestrel analysis data cleared'}
+            print(f"[API] clear_kestrel_data() -> Removed .kingfisher from {kestrel_dir}", flush=True)
+            return {'success': True, 'message': 'Kingfisher analysis data cleared'}
         except Exception as e:
             print(f"[API] clear_kestrel_data() -> Error: {e}", flush=True)
             return {'success': False, 'error': str(e)}
@@ -632,23 +632,26 @@ class Api:
                 return {'success': True, 'version': 'unknown'}
 
     def fetch_remote_version(self):
-        """Fetch version.json from projectkestrel.org to bypass CORS in JS."""
+        """Fetch GitHub release metadata used by the in-app update check."""
         try:
             import urllib.request
             import urllib.error
             import json
             import ssl
             import certifi
-            
-            url = "https://projectkestrel.org/version.json"
+
+            url = "https://api.github.com/repos/HackyPenguin/kingfisher/releases"
             ctx = ssl.create_default_context(cafile=certifi.where())
-            
+
             req = urllib.request.Request(
                 url,
-                headers={'User-Agent': 'ProjectKestrel/1.0'},
+                headers={
+                    'User-Agent': 'Kingfisher/1.0',
+                    'Accept': 'application/vnd.github+json',
+                },
                 method='GET'
             )
-            
+
             with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 return {'success': True, 'data': data}
@@ -753,12 +756,12 @@ class Api:
     
     def read_image_file(self, relative_path, root_path):
         """Read an image file and return it as base64-encoded data.
-        
+
         Args:
-            relative_path: Path relative to root (e.g., ".kestrel/export/photo.jpg") 
-                          OR absolute path (for backward compatibility with old databases)
+            relative_path: Path relative to root (e.g., ".kingfisher/export/photo.jpg")
+                OR absolute path (for backward compatibility with old databases)
             root_path: Absolute path to root folder
-            
+
         Returns:
             dict with 'success': bool, 'data': str (base64), 'mime': str, 'error': str
         """
@@ -793,7 +796,7 @@ class Api:
             return {'success': False, 'error': str(e), 'data': '', 'mime': ''}
 
     def list_subfolders(self, root_path: str, max_depth: int = 3):
-        """Recursively list subfolders under root_path, flagging those with .kestrel.
+        """Recursively list subfolders under root_path, flagging those with .kingfisher.
 
         Args:
             root_path: Absolute path to the root folder to scan.
@@ -836,14 +839,14 @@ class Api:
                         continue
                     node_count[0] += 1
                     full = entry.path
-                    has_kestrel = os.path.isfile(os.path.join(full, '.kestrel', 'kestrel_database.csv'))
-                    kestrel_version = ''
+                    has_kestrel = os.path.isfile(os.path.join(full, '.kingfisher', 'kingfisher_database.csv'))
+                    kingfisher_version = ''
                     if has_kestrel:
                         try:
-                            meta_path = os.path.join(full, '.kestrel', 'kestrel_metadata.json')
+                            meta_path = os.path.join(full, '.kingfisher', 'kingfisher_metadata.json')
                             if os.path.isfile(meta_path):
                                 with open(meta_path, 'r', encoding='utf-8') as mf:
-                                    kestrel_version = json.load(mf).get('version', '')
+                                    kingfisher_version = json.load(mf).get('version', '')
                         except Exception:
                             pass
                     children = _scan(full, depth - 1)
@@ -851,27 +854,27 @@ class Api:
                         'name': name,
                         'path': full,
                         'has_kestrel': has_kestrel,
-                        'kestrel_version': kestrel_version,
+                        'kingfisher_version': kingfisher_version,
                         'children': children,
                     })
                 return result
 
             tree = _scan(root_path, max_depth)
-            root_has_kestrel = os.path.isfile(os.path.join(root_path, '.kestrel', 'kestrel_database.csv'))
-            root_kestrel_version = ''
+            root_has_kestrel = os.path.isfile(os.path.join(root_path, '.kingfisher', 'kingfisher_database.csv'))
+            root_kingfisher_version = ''
             if root_has_kestrel:
                 try:
-                    meta_path = os.path.join(root_path, '.kestrel', 'kestrel_metadata.json')
+                    meta_path = os.path.join(root_path, '.kingfisher', 'kingfisher_metadata.json')
                     if os.path.isfile(meta_path):
                         with open(meta_path, 'r', encoding='utf-8') as mf:
-                            root_kestrel_version = json.load(mf).get('version', '')
+                            root_kingfisher_version = json.load(mf).get('version', '')
                 except Exception:
                     pass
             return {
                 'success': True,
                 'tree': tree,
                 'root_has_kestrel': root_has_kestrel,
-                'root_kestrel_version': root_kestrel_version,
+                'root_kingfisher_version': root_kingfisher_version,
                 'error': '',
                 'nodes': node_count[0],
                 'truncated': bool(limit_reached[0]),
@@ -881,7 +884,7 @@ class Api:
             return {'success': False, 'tree': [], 'error': str(e)}
 
     def write_kestrel_csv(self, folder_path: str, csv_content: str):
-        """Write CSV content back to .kestrel/kestrel_database.csv for the given folder."""
+        """Write CSV content back to .kingfisher/kingfisher_database.csv for the given folder."""
         try:
             _, kestrel_dir, _, err = self._resolve_folder_root_and_kestrel(
                 folder_path,
@@ -891,7 +894,7 @@ class Api:
             if err:
                 return {'success': False, 'error': err}
 
-            csv_path = os.path.join(kestrel_dir, 'kestrel_database.csv')
+            csv_path = os.path.join(kestrel_dir, 'kingfisher_database.csv')
             if not os.path.exists(csv_path):
                 return {'success': False, 'error': f'CSV not found: {csv_path}'}
             with open(csv_path, 'w', encoding='utf-8', newline='') as f:
@@ -908,7 +911,7 @@ class Api:
         each image's raw quality score to a 1–5 star rating without any rank-based normalization.
         Returns the computed map WITHOUT writing to the CSV file.
 
-        Also caches the folder's quality distribution in kestrel_metadata.json for potential
+        Also caches the folder's quality distribution in kingfisher_metadata.json for potential
         future use (e.g. histogram display).
 
         The ``mode`` parameter is accepted for API compatibility but is ignored; profile
@@ -946,8 +949,8 @@ class Api:
             if err:
                 return {'success': False, 'error': err, 'normalized_ratings': {}, 'mode_used': ''}
 
-            csv_path = os.path.join(kestrel_dir, 'kestrel_database.csv')
-            metadata_path = os.path.join(kestrel_dir, 'kestrel_metadata.json')
+            csv_path = os.path.join(kestrel_dir, 'kingfisher_database.csv')
+            metadata_path = os.path.join(kestrel_dir, 'kingfisher_metadata.json')
 
             if not os.path.exists(csv_path):
                 return {'success': False, 'error': 'No database found', 'normalized_ratings': {}, 'mode_used': ''}
@@ -1005,8 +1008,8 @@ class Api:
             print(f'[API] apply_normalization() -> Error: {e}', flush=True)
             return {'success': False, 'error': str(e), 'normalized_ratings': {}, 'mode_used': ''}
 
-    def read_kestrel_scenedata(self, folder_path: str) -> dict:
-        """Read kestrel_scenedata.json from a folder's .kestrel directory.
+    def read_kingfisher_scenedata(self, folder_path: str) -> dict:
+        """Read kingfisher_scenedata.json from a folder's .kingfisher directory.
 
         Returns:
             {'success': bool, 'data': dict, 'error': str}
@@ -1014,14 +1017,14 @@ class Api:
         try:
             root_path, kestrel_dir, _, err = self._resolve_folder_root_and_kestrel(
                 folder_path,
-                context='read_kestrel_scenedata',
+                context='read_kingfisher_scenedata',
                 require_root_exists=True,
             )
             if err:
                 return {'success': False, 'data': {}, 'error': err}
 
             self._track_cache_root(root_path)
-            scenedata_path = os.path.join(kestrel_dir, 'kestrel_scenedata.json')
+            scenedata_path = os.path.join(kestrel_dir, 'kingfisher_scenedata.json')
 
             if not os.path.exists(scenedata_path):
                 # Return an empty-but-valid structure; the UI will fall back to scene_count grouping
@@ -1037,14 +1040,14 @@ class Api:
             
             return {'success': True, 'data': data, 'error': ''}
         except Exception as e:
-            print(f'[API] read_kestrel_scenedata({folder_path!r}) -> Error: {e}', flush=True)
+            print(f'[API] read_kingfisher_scenedata({folder_path!r}) -> Error: {e}', flush=True)
             return {'success': False, 'data': {}, 'error': str(e)}
 
-    def write_kestrel_scenedata(self, folder_path: str, scenedata: dict) -> dict:
-        """Write kestrel_scenedata.json to a folder's .kestrel directory.
+    def write_kingfisher_scenedata(self, folder_path: str, scenedata: dict) -> dict:
+        """Write kingfisher_scenedata.json to a folder's .kingfisher directory.
 
         Args:
-            folder_path: Absolute path to folder (parent or .kestrel itself).
+            folder_path: Absolute path to folder (parent or .kingfisher itself).
             scenedata: The scenedata dict (version, image_ratings, scenes).
 
         Returns:
@@ -1053,16 +1056,16 @@ class Api:
         try:
             _, kestrel_dir, _, err = self._resolve_folder_root_and_kestrel(
                 folder_path,
-                context='write_kestrel_scenedata',
+                context='write_kingfisher_scenedata',
                 require_root_exists=True,
             )
             if err:
                 return {'success': False, 'error': err, 'path': ''}
 
             if not os.path.isdir(kestrel_dir):
-                return {'success': False, 'error': f'.kestrel directory not found at: {kestrel_dir}', 'path': ''}
+                return {'success': False, 'error': f'.kingfisher directory not found at: {kestrel_dir}', 'path': ''}
 
-            scenedata_path = os.path.join(kestrel_dir, 'kestrel_scenedata.json')
+            scenedata_path = os.path.join(kestrel_dir, 'kingfisher_scenedata.json')
             if not isinstance(scenedata, dict):
                 return {'success': False, 'error': 'scenedata must be a dict', 'path': ''}
 
@@ -1070,7 +1073,7 @@ class Api:
                 json.dump(scenedata, f, indent=2)
             return {'success': True, 'path': scenedata_path, 'error': ''}
         except Exception as e:
-            print(f'[API] write_kestrel_scenedata({folder_path!r}) -> Error: {e}', flush=True)
+            print(f'[API] write_kingfisher_scenedata({folder_path!r}) -> Error: {e}', flush=True)
             return {'success': False, 'error': str(e), 'path': ''}
 
     def open_folder(self, path: str):
@@ -1199,194 +1202,21 @@ class Api:
                 except (TypeError, ValueError):
                     return None
 
-            prev_files = _coerce_number(existing.get('kestrel_impact_total_files'))
-            new_files = _coerce_number(merged.get('kestrel_impact_total_files'))
+            prev_files = _coerce_number(existing.get('kingfisher_impact_total_files'))
+            new_files = _coerce_number(merged.get('kingfisher_impact_total_files'))
             if prev_files is not None and (new_files is None or new_files < prev_files):
-                merged['kestrel_impact_total_files'] = int(prev_files)
+                merged['kingfisher_impact_total_files'] = int(prev_files)
 
-            prev_secs = _coerce_number(existing.get('kestrel_impact_total_seconds'))
-            new_secs = _coerce_number(merged.get('kestrel_impact_total_seconds'))
+            prev_secs = _coerce_number(existing.get('kingfisher_impact_total_seconds'))
+            new_secs = _coerce_number(merged.get('kingfisher_impact_total_seconds'))
             if prev_secs is not None and (new_secs is None or new_secs < prev_secs):
-                merged['kestrel_impact_total_seconds'] = prev_secs
+                merged['kingfisher_impact_total_seconds'] = prev_secs
 
             save_persisted_settings(merged)
             return {'success': True}
         except Exception as e:
             print(f'[API] save_settings_data() -> Error: {e}', flush=True)
             return {'success': False, 'error': str(e)}
-
-    # ------------------------------------------------------------------ #
-    #  Sample Sets API                                                     #
-    # ------------------------------------------------------------------ #
-
-    def get_sample_sets_paths(self):
-        """Return absolute paths to bundled sample bird-photo sets.
-
-        Works both during development (sample_sets/ next to the repo root)
-        and in PyInstaller frozen builds (bundled via _MEIPASS).
-        """
-        try:
-            candidates = []
-            debug_info = []
-            
-            is_frozen = getattr(sys, 'frozen', False)
-            debug_info.append(f'[init] sys.frozen={is_frozen}')
-            
-            if is_frozen:
-                debug_info.append('[frozen] Checking frozen build paths...')
-                meipass = getattr(sys, '_MEIPASS', None)
-                exe_dir = os.path.dirname(sys.executable) if hasattr(sys, 'executable') else None
-                debug_info.append(f'[frozen] sys._MEIPASS={meipass}')
-                debug_info.append(f'[frozen] sys.executable={sys.executable}')
-                debug_info.append(f'[frozen] exe_dir={exe_dir}')
-                
-                candidates_checked = []
-                bases = []
-                
-                if meipass:
-                    bases.append(meipass)
-                    bases.append(os.path.join(meipass, '_internal'))
-                if exe_dir:
-                    bases.append(exe_dir)
-                    bases.append(os.path.join(exe_dir, '_internal'))
-                    parent_exe = os.path.dirname(exe_dir)
-                    if parent_exe and parent_exe != exe_dir:
-                        bases.append(parent_exe)
-                        bases.append(os.path.join(parent_exe, '_internal'))
-                
-                sources_internal = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '_internal'))
-                bases.append(sources_internal)
-                
-                debug_info.append(f'[frozen] Will check {len(bases)} base paths')
-                for base in bases:
-                    if not base or base in candidates_checked:
-                        continue
-                    candidates_checked.append(base)
-                    d = os.path.join(base, 'sample_sets')
-                    exists = os.path.isdir(d)
-                    debug_info.append(f'[frozen] Checking {d}: exists={exists}')
-                    if exists:
-                        debug_info.append(f'[frozen] Found sample_sets at: {d}')
-                        candidates.append(d)
-                        break
-                
-                if not candidates and exe_dir:
-                    debug_info.append(f'[frozen-fallback] Exhaustive search starting from {exe_dir}')
-                    try:
-                        start_dir = os.path.abspath(os.path.join(exe_dir, '..', '..'))
-                        if not os.path.isdir(start_dir):
-                            start_dir = exe_dir
-                        for root, dirs, files in os.walk(start_dir):
-                            depth = root[len(exe_dir):].count(os.sep)
-                            if depth > 5:
-                                del dirs[:]
-                                continue
-                            if 'sample_sets' in dirs:
-                                found = os.path.join(root, 'sample_sets')
-                                debug_info.append(f'[frozen-fallback] Found sample_sets at: {found}')
-                                candidates.append(found)
-                                break
-                    except Exception as e:
-                        debug_info.append(f'[frozen-fallback] Exhaustive search failed: {e}')
-            else:
-                debug_info.append('[dev] Not a frozen build')
-            
-            cwd_candidate = os.path.join(os.getcwd(), 'sample_sets')
-            cwd_exists = os.path.isdir(cwd_candidate)
-            debug_info.append(f'[dev-cwd] {cwd_candidate}: exists={cwd_exists}')
-            if cwd_exists and cwd_candidate not in candidates:
-                candidates.append(cwd_candidate)
-            
-            file_candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sample_sets')
-            file_candidate = os.path.normpath(file_candidate)
-            file_exists = os.path.isdir(file_candidate)
-            debug_info.append(f'[dev-file] {file_candidate}: exists={file_exists}')
-            if file_exists and file_candidate not in candidates:
-                candidates.append(file_candidate)
-            
-            if not candidates and sys.platform.startswith('win'):
-                debug_info.append('[fallback] Starting Program Files search...')
-                pf_paths = [
-                    os.environ.get('ProgramFiles'),
-                    os.environ.get('ProgramFiles(x86)'),
-                    'C:\\Program Files',
-                    'C:\\Program Files (x86)',
-                ]
-                for pf_base in pf_paths:
-                    if not pf_base or not os.path.isdir(pf_base):
-                        continue
-                    for dirname in os.listdir(pf_base):
-                        if 'kestrel' in dirname.lower():
-                            kestrel_dir = os.path.join(pf_base, dirname)
-                            direct = os.path.join(kestrel_dir, 'sample_sets')
-                            if os.path.isdir(direct):
-                                debug_info.append(f'[fallback] Found sample_sets at: {direct}')
-                                candidates.append(direct)
-                                break
-                            internal = os.path.join(kestrel_dir, '_internal', 'sample_sets')
-                            if os.path.isdir(internal):
-                                debug_info.append(f'[fallback] Found sample_sets at: {internal}')
-                                candidates.append(internal)
-                                break
-                    if candidates:
-                        break
-
-            debug_info.append(f'[collect] Found {len(candidates)} candidate roots')
-            for idx, cand in enumerate(candidates):
-                debug_info.append(f'[collect]   [{idx}] {cand}')
-
-            if not candidates:
-                error_msg = 'sample_sets folder not found'
-                for line in debug_info:
-                    print(line, flush=True)
-                print(f'[API] get_sample_sets_paths() -> Error: {error_msg}', flush=True)
-                return {'success': False, 'error': error_msg, 'paths': []}
-
-            sample_root = candidates[0]
-            debug_info.append(f'[api] Using root: {sample_root}')
-            
-            try:
-                items = os.listdir(sample_root)
-                debug_info.append(f'[api] Root contains {len(items)} items: {items}')
-            except Exception as e:
-                debug_info.append(f'[api] Failed to list {sample_root}: {e}')
-                items = []
-            
-            paths = []
-            for name in sorted(items):
-                full = os.path.join(sample_root, name)
-                is_dir = os.path.isdir(full)
-                kestrel_dir = os.path.join(full, '.kestrel')
-                kestrel_exists = os.path.isdir(kestrel_dir)
-                debug_info.append(f'[api]   Item "{name}": is_dir={is_dir}, has .kestrel={kestrel_exists}')
-                
-                if is_dir and kestrel_exists:
-                    readonly_src = os.path.join(kestrel_dir, 'kestrel_database_readonly.csv')
-                    db_dst       = os.path.join(kestrel_dir, 'kestrel_database.csv')
-                    readonly_exists = os.path.isfile(readonly_src)
-                    debug_info.append(f'[api]     readonly_src: {readonly_src} exists={readonly_exists}')
-                    
-                    if readonly_exists:
-                        try:
-                            shutil.copy2(readonly_src, db_dst)
-                            debug_info.append(f'[api]     Restored sample DB: {db_dst}')
-                        except Exception as e:
-                            debug_info.append(f'[api]     Failed to restore DB: {e}')
-                    else:
-                        debug_info.append(f'[api]     No readonly DB found at {readonly_src}')
-                    
-                    paths.append(full)
-                    debug_info.append(f'[api]     Added path: {full}')
-            
-            for line in debug_info:
-                print(line, flush=True)
-            print(f'[API] get_sample_sets_paths() -> {len(paths)} sets from {sample_root}', flush=True)
-            return {'success': True, 'paths': paths}
-        except Exception as e:
-            import traceback
-            print(f'[API] get_sample_sets_paths() -> Error: {e}', flush=True)
-            print(f'[API] Traceback: {traceback.format_exc()}', flush=True)
-            return {'success': False, 'error': str(e), 'paths': []}
 
     # ------------------------------------------------------------------ #
     #  Analysis Queue API (called from JavaScript in pywebview mode)       #
@@ -1814,9 +1644,9 @@ class Api:
                 return {'success': False, 'error': err}
 
             reject_dir = os.path.join(root_path, '_KESTREL_Rejects')
-            kestrel_dir = os.path.join(root_path, '.kestrel')
-            csv_backup = os.path.join(kestrel_dir, 'kestrel_database_old.csv')
-            scenedata_backup = os.path.join(kestrel_dir, 'kestrel_scenedata_old.json')
+            kestrel_dir = os.path.join(root_path, '.kingfisher')
+            csv_backup = os.path.join(kestrel_dir, 'kingfisher_database_old.csv')
+            scenedata_backup = os.path.join(kestrel_dir, 'kingfisher_scenedata_old.json')
 
             has_reject_folder = os.path.isdir(reject_dir)
             has_csv_backup = os.path.isfile(csv_backup)
@@ -1873,7 +1703,7 @@ class Api:
             return {'success': False, 'error': str(e)}
 
     def backup_kestrel_csv(self, root_path: str):
-        """Copy kestrel_database.csv to kestrel_database_old.csv as backup.
+        """Copy kingfisher_database.csv to kingfisher_database_old.csv as backup.
 
         Deprecated: Use backup_kestrel_db instead for dual backup.
         Kept for backward compatibility.
@@ -1881,11 +1711,11 @@ class Api:
         return self.backup_kestrel_db(root_path)
 
     def backup_kestrel_db(self, root_path: str):
-        """Backup both kestrel_database.csv and kestrel_scenedata.json before major operations.
+        """Backup both kingfisher_database.csv and kingfisher_scenedata.json before major operations.
 
         Creates:
-        - .kestrel/kestrel_database_old.csv (from kestrel_database.csv)
-        - .kestrel/kestrel_scenedata_old.json (from kestrel_scenedata.json)
+        - .kingfisher/kingfisher_database_old.csv (from kingfisher_database.csv)
+        - .kingfisher/kingfisher_scenedata_old.json (from kingfisher_scenedata.json)
 
         Returns:
             {"success": bool, "backup_csv": str, "backup_scenedata": str, "error": str}
@@ -1895,19 +1725,19 @@ class Api:
             if err:
                 return {'success': False, 'error': err, 'backup_csv': '', 'backup_scenedata': ''}
 
-            kestrel_dir = os.path.join(root_path, ".kestrel")
+            kestrel_dir = os.path.join(root_path, ".kingfisher")
             kestrel_real = os.path.realpath(kestrel_dir)
             if not self._is_within_root(kestrel_real, root_path):
-                self._log_security_reject('backup_kestrel_db', 'Resolved .kestrel path escapes root', root=root_path, kestrel=kestrel_real)
-                return {'success': False, 'error': 'Invalid .kestrel path', 'backup_csv': '', 'backup_scenedata': ''}
+                self._log_security_reject('backup_kestrel_db', 'Resolved .kingfisher path escapes root', root=root_path, kestrel=kestrel_real)
+                return {'success': False, 'error': 'Invalid .kingfisher path', 'backup_csv': '', 'backup_scenedata': ''}
 
-            csv_path = os.path.join(kestrel_dir, "kestrel_database.csv")
-            scenedata_path = os.path.join(kestrel_dir, "kestrel_scenedata.json")
-            csv_backup = os.path.join(kestrel_dir, "kestrel_database_old.csv")
-            scenedata_backup = os.path.join(kestrel_dir, "kestrel_scenedata_old.json")
+            csv_path = os.path.join(kestrel_dir, "kingfisher_database.csv")
+            scenedata_path = os.path.join(kestrel_dir, "kingfisher_scenedata.json")
+            csv_backup = os.path.join(kestrel_dir, "kingfisher_database_old.csv")
+            scenedata_backup = os.path.join(kestrel_dir, "kingfisher_scenedata_old.json")
 
             if not os.path.exists(csv_path):
-                return {"success": False, "error": "kestrel_database.csv not found", "backup_csv": "", "backup_scenedata": ""}
+                return {"success": False, "error": "kingfisher_database.csv not found", "backup_csv": "", "backup_scenedata": ""}
 
             # Backup CSV
             shutil.copy2(csv_path, csv_backup)
@@ -1931,7 +1761,7 @@ class Api:
             return {"success": False, "error": str(e), "backup_csv": "", "backup_scenedata": ""}
 
     def restore_kestrel_csv_backup(self, root_path: str):
-        """Restore kestrel_database_old.csv back to kestrel_database.csv.
+        """Restore kingfisher_database_old.csv back to kingfisher_database.csv.
 
         Deprecated: Use restore_kestrel_db_backup instead for dual restore.
         Kept for backward compatibility.
@@ -1939,11 +1769,11 @@ class Api:
         return self.restore_kestrel_db_backup(root_path)
 
     def restore_kestrel_db_backup(self, root_path: str):
-        """Restore both kestrel_database.csv and kestrel_scenedata.json from backups.
+        """Restore both kingfisher_database.csv and kingfisher_scenedata.json from backups.
 
         Restores from:
-        - .kestrel/kestrel_database_old.csv (to kestrel_database.csv)
-        - .kestrel/kestrel_scenedata_old.json (to kestrel_scenedata.json, if backup exists)
+        - .kingfisher/kingfisher_database_old.csv (to kingfisher_database.csv)
+        - .kingfisher/kingfisher_scenedata_old.json (to kingfisher_scenedata.json, if backup exists)
 
         Returns:
             {"success": bool, "error": str}
@@ -1953,19 +1783,19 @@ class Api:
             if err:
                 return {'success': False, 'error': err}
 
-            kestrel_dir = os.path.join(root_path, ".kestrel")
+            kestrel_dir = os.path.join(root_path, ".kingfisher")
             kestrel_real = os.path.realpath(kestrel_dir)
             if not self._is_within_root(kestrel_real, root_path):
-                self._log_security_reject('restore_kestrel_db_backup', 'Resolved .kestrel path escapes root', root=root_path, kestrel=kestrel_real)
-                return {'success': False, 'error': 'Invalid .kestrel path'}
+                self._log_security_reject('restore_kestrel_db_backup', 'Resolved .kingfisher path escapes root', root=root_path, kestrel=kestrel_real)
+                return {'success': False, 'error': 'Invalid .kingfisher path'}
 
-            csv_path = os.path.join(kestrel_dir, "kestrel_database.csv")
-            csv_backup = os.path.join(kestrel_dir, "kestrel_database_old.csv")
-            scenedata_path = os.path.join(kestrel_dir, "kestrel_scenedata.json")
-            scenedata_backup = os.path.join(kestrel_dir, "kestrel_scenedata_old.json")
+            csv_path = os.path.join(kestrel_dir, "kingfisher_database.csv")
+            csv_backup = os.path.join(kestrel_dir, "kingfisher_database_old.csv")
+            scenedata_path = os.path.join(kestrel_dir, "kingfisher_scenedata.json")
+            scenedata_backup = os.path.join(kestrel_dir, "kingfisher_scenedata_old.json")
 
             if not os.path.exists(csv_backup):
-                return {"success": False, "error": "kestrel_database_old.csv not found"}
+                return {"success": False, "error": "kingfisher_database_old.csv not found"}
 
             # Restore CSV
             shutil.copy2(csv_backup, csv_path)
@@ -2021,7 +1851,7 @@ class Api:
         exposure_meter_scale: float = 1.0,
     ):
         """Process a RAW file and return full-resolution JPEG as base64.
-        Results are cached in {root}/.kestrel/culling_TMP/ for fast subsequent loads.
+        Results are cached in {root}/.kingfisher/culling_TMP/ for fast subsequent loads.
         Falls back to read_image_file for non-RAW formats.
 
         exp_correction: exposure offset in stops applied during postprocessing.
@@ -2098,7 +1928,7 @@ class Api:
             use_cache = bool(settings.get('raw_preview_cache_enabled', True))
             debug_logging_enabled = bool(settings.get('raw_preview_debug_logging_enabled', True))
 
-            cache_dir = os.path.join(root_path_real, '.kestrel', 'culling_TMP')
+            cache_dir = os.path.join(root_path_real, '.kingfisher', 'culling_TMP')
             # Cache key includes relative path + extension + file identity,
             # and exposure/mode so previews cannot be reused across EV variants
             # or different exposure-render pipelines.
@@ -2233,7 +2063,7 @@ class Api:
             return {'success': False, 'error': str(e)}
 
     def cleanup_culling_cache(self, root_path: str):
-        """Remove the .kestrel/culling_TMP folder to free up space."""
+        """Remove the .kingfisher/culling_TMP folder to free up space."""
         try:
             root_real, err = self._validate_root_dir(root_path, context='cleanup_culling_cache', require_exists=False)
             if err:
@@ -2242,7 +2072,7 @@ class Api:
             if not os.path.isdir(root_real):
                 return {'success': True}
 
-            cache_dir = os.path.join(root_real, '.kestrel', 'culling_TMP')
+            cache_dir = os.path.join(root_real, '.kingfisher', 'culling_TMP')
             cache_real = os.path.realpath(cache_dir)
             if not self._is_within_root(cache_real, root_real):
                 self._log_security_reject('cleanup_culling_cache', 'Cache path escapes root', root=root_real, cache=cache_real)

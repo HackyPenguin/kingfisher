@@ -1,5 +1,5 @@
 """
-run_assessment.py — Project Kestrel
+run_assessment.py — Kingfisher
 Evaluate the trained ONNX model on the held-out test split and run a
 Kestrel CLI integration test against 5 sampled species images.
 
@@ -284,7 +284,7 @@ def integration_test() -> bool:
             log.error("stderr:\n%s", result.stderr)
             return False
 
-        db_path = Path(tmpdir) / ".kestrel" / "kestrel_database.csv"
+        db_path = Path(tmpdir) / ".kingfisher" / "kingfisher_database.csv"
         if not db_path.exists():
             log.error(
                 "Expected output database not found: %s", db_path

@@ -87,7 +87,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "analyzer\models" | Out-Null
 
           $models = @(
-            @{ name = "mask_rcnn_resnet50_fpn_v2.pth"; url = "https://github.com/SanjaySoniLV/ProjectKestrel/releases/download/test/mask_rcnn_resnet50_fpn_v2.pth" }
+            @{ name = "mask_rcnn_resnet50_fpn_v2.pth"; url = "https://github.com/SanjaySoniLV/Kingfisher/releases/download/test/mask_rcnn_resnet50_fpn_v2.pth" }
           )
 
           foreach ($m in $models) {
@@ -116,7 +116,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build ProjectKestrel with PyInstaller
+      - name: Build Kingfisher with PyInstaller
         shell: cmd
         run: packaging\build_installer_headless.bat
 
@@ -129,8 +129,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "analyzer\msix\Assets\Squares" | Out-Null
 
           # Copying files
-          Copy-Item -Recurse "analyzer\dist\ProjectKestrel" "analyzer\msix\ProjectKestrel"
-          Copy-Item "packaging\ProjectKestrel.appxmanifest" "analyzer\msix\AppxManifest.xml" -Force
+          Copy-Item -Recurse "analyzer\dist\Kingfisher" "analyzer\msix\Kingfisher"
+          Copy-Item "packaging\Kingfisher.appxmanifest" "analyzer\msix\AppxManifest.xml" -Force
           Copy-Item "assets\StoreLogo.png"                 "analyzer\msix\Assets\StoreLogo.png"
           Copy-Item "assets\SplashScreen.png"              "analyzer\msix\Assets\SplashScreen.png"
           Copy-Item "assets\Wide310x150Logo.png"           "analyzer\msix\Assets\Wide310x150Logo.png"
@@ -148,17 +148,17 @@ jobs:
 
               # Step 1 - Create the .msix as before
               Write-Host 'Creating MSIX package...'
-              & "$makeappx" pack /d "analyzer\msix" /p "dist\installer\ProjectKestrel.msix" /o
-              Write-Host 'MSIX created at dist\installer\ProjectKestrel.msix'
+              & "$makeappx" pack /d "analyzer\msix" /p "dist\installer\Kingfisher.msix" /o
+              Write-Host 'MSIX created at dist\installer\Kingfisher.msix'
 
               # Step 2 - Create a bundle staging folder containing just the .msix
               New-Item -ItemType Directory -Force -Path "dist\installer\bundle_staging" | Out-Null
-              Copy-Item "dist\installer\ProjectKestrel.msix" "dist\installer\bundle_staging\ProjectKestrel.msix"
+              Copy-Item "dist\installer\Kingfisher.msix" "dist\installer\bundle_staging\Kingfisher.msix"
 
               # Step 3 - Wrap into a .msixbundle
               Write-Host 'Creating MSIX bundle...'
-              & "$makeappx" bundle /d "dist\installer\bundle_staging" /p "dist\installer\ProjectKestrel.msixbundle" /o
-              Write-Host 'MSIX bundle created at dist\installer\ProjectKestrel.msixbundle'
+              & "$makeappx" bundle /d "dist\installer\bundle_staging" /p "dist\installer\Kingfisher.msixbundle" /o
+              Write-Host 'MSIX bundle created at dist\installer\Kingfisher.msixbundle'
 
           } else {
               Write-Host 'ERROR: makeappx.exe not found. MSIX packaging skipped.'
@@ -170,13 +170,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-msix
-          path: dist/installer/ProjectKestrel.msix
+          path: dist/installer/Kingfisher.msix
 
       - name: Upload MSIX bundle
         uses: actions/upload-artifact@v4
         with:
           name: windows-msixbundle
-          path: dist/installer/ProjectKestrel.msixbundle
+          path: dist/installer/Kingfisher.msixbundle
 
       - name: Install Inno Setup 6
         shell: powershell
@@ -188,7 +188,7 @@ jobs:
           }
           Write-Host "Inno Setup 6 installed."
 
-      - name: Build ProjectKestrel Installer
+      - name: Build Kingfisher Installer
         shell: cmd
         run: packaging\build_installer_headless_part2.bat
 
@@ -198,8 +198,8 @@ jobs:
           name: windows-installer
           path: dist/installer/*.exe
 
-      - name: Upload ProjectKestrel onedir bundle
+      - name: Upload Kingfisher onedir bundle
         uses: actions/upload-artifact@v4
         with:
           name: windows-bundle
-          path: analyzer/dist/ProjectKestrel/
+          path: analyzer/dist/Kingfisher/

@@ -17,7 +17,7 @@ jobs:
           mkdir -p analyzer/models
 
           curl -L -o analyzer/models/mask_rcnn_resnet50_fpn_v2.pth \
-            "https://github.com/SanjaySoniLV/ProjectKestrel/releases/download/test/mask_rcnn_resnet50_fpn_v2.pth"
+            "https://github.com/SanjaySoniLV/Kingfisher/releases/download/test/mask_rcnn_resnet50_fpn_v2.pth"
 
           echo "Verifying download..."
           if [ ! -f analyzer/models/mask_rcnn_resnet50_fpn_v2.pth ]; then

@@ -1,5 +1,5 @@
 """
-train.py — Project Kestrel
+train.py — Kingfisher
 Two-phase EfficientNetV2-S training pipeline for UK bird species classification.
 
 Phase 1: Head-only warm-up (frozen backbone, LinearLR warmup)

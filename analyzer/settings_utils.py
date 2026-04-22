@@ -32,14 +32,14 @@ except ImportError:
 
 
 def _get_user_data_dir() -> str:
-    # Use a unified application folder name for Project Kestrel
+    # Use a unified application folder name for Kingfisher
     if sys.platform.startswith('win'):
         base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
-        return os.path.join(base, 'ProjectKestrel')
+        return os.path.join(base, 'Kingfisher')
     if sys.platform == 'darwin':
-        return os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'ProjectKestrel')
+        return os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'Kingfisher')
     base = os.environ.get('XDG_DATA_HOME') or os.path.join(os.path.expanduser('~'), '.local', 'share')
-    return os.path.join(base, 'project-kestrel')
+    return os.path.join(base, 'kingfisher')
 
 
 def _get_settings_path() -> str:
@@ -330,16 +330,16 @@ def _sanitize_settings_payload(data: dict, emit_log: bool = False) -> dict:
         out['lastQueueState'] = _sanitize_path_list(data.get('lastQueueState'), max_items=512)
 
     _set_bool('main_tutorial_seen', default=False)
-    if 'kestrel_donate_thresholds_shown' in data:
-        out['kestrel_donate_thresholds_shown'] = _sanitize_int_list(
-            data.get('kestrel_donate_thresholds_shown'),
+    if 'kingfisher_donate_thresholds_shown' in data:
+        out['kingfisher_donate_thresholds_shown'] = _sanitize_int_list(
+            data.get('kingfisher_donate_thresholds_shown'),
             max_items=128,
             min_value=0,
             max_value=1_000_000_000,
         )
 
-    _set_int('kestrel_impact_total_files', default=0, min_value=0, max_value=1_000_000_000_000)
-    _set_float('kestrel_impact_total_seconds', default=0.0, min_value=0.0, max_value=31_536_000_000.0, digits=1)
+    _set_int('kingfisher_impact_total_files', default=0, min_value=0, max_value=1_000_000_000_000)
+    _set_float('kingfisher_impact_total_seconds', default=0.0, min_value=0.0, max_value=31_536_000_000.0, digits=1)
 
     _set_str('machine_id', max_len=128)
     _set_str('version', max_len=64)

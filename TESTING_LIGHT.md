@@ -1,4 +1,4 @@
-Project Kestrel — Lightweight UI/UX Testing Checklist
+Kingfisher — Lightweight UI/UX Testing Checklist
 
 Purpose: a compact, pragmatic checklist you can run in ~30–90 minutes. This version assumes you'll notice obvious breakages; items focus on core workflows and observable regressions. Mark [x] = pass, [!] = noticed problem, [-] = not applicable.
 
@@ -7,9 +7,9 @@ Purpose: a compact, pragmatic checklist you can run in ~30–90 minutes. This ve
 **CORE — Quick Run (do these in order)**
 
 Step 0 (STARTUP & tutorial)
-- [ ] Launch Kestrel; if shown, skim the Legal/Terms UI and accept.
+- [ ] Launch Kingfisher; if shown, skim the Legal/Terms UI and accept.
 - [ ] Open the tutorial/help and use Skip / Enter / Arrow keys / Escape to navigate — it renders and you can complete the workflow.
-- [ ] Re-open Kestrel; the legal screen should not reappear.
+- [ ] Re-open Kingfisher; the legal screen should not reappear.
 
 Step 1 (ANALYZE FOLDERS → queue → run)
 - [ ] Open Analyze Folders, pick a root, confirm folder tree loads and analyzed folders show a distinct label/state.
@@ -33,9 +33,9 @@ Step 4 (CULLING — quick smoke)
 Step 5 (SETTINGS & RESTART)
 - [ ] Open Settings, change an obvious preference (e.g., editor or zoom), save, restart the app, and confirm the change persisted.
 
-Step 6 (FEEDBACK & TELEMETRY — final check)
-- [ ] Submit a small feedback entry (can be "UI looks good") and confirm the UI shows a confirmation.
-- [ ] At the end of your run, verify telemetry endpoints fired once where expected (installation/completion/feedback). Do this as one final verification rather than per-step.
+Step 6 (FEEDBACK & SUPPORT — final check)
+- [ ] Open support surfaces and confirm they point to GitHub issues / releases / repository pages.
+- [ ] Confirm there is no telemetry opt-in prompt and settings describe telemetry as disabled.
 
 ---
 
@@ -43,7 +43,7 @@ Step 6 (FEEDBACK & TELEMETRY — final check)
 - [ ] Reorder queue items and confirm analysis respects the new order.
 - [ ] Use filters (species/rating) in the scene grid and confirm filters narrow results correctly.
 - [ ] Try multi-select (Ctrl/Shift) and run Merge or other bulk actions.
-- [ ] Test Sample Sets from the Welcome panel — they should load and be browseable.
+- [ ] Replay the tutorial from the Welcome panel and confirm it still guides you through the core workflow without bundled demo data.
 
 ---
 
@@ -57,6 +57,6 @@ Step 6 (FEEDBACK & TELEMETRY — final check)
 
 Notes:
 - This light checklist is deliberately short — it relies on you noticing problems during normal use and marking [!] when something is wrong.
-- For telemetry/analytics, check them once at the end of the session rather than per-step.
+- Telemetry is intentionally disabled in Kingfisher; verify support and release links instead.
 
 Last updated: 2026-03-04

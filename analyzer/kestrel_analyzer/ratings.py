@@ -73,7 +73,7 @@ def get_image_display_rating(
     Args:
         filename: Image filename (key into user_image_ratings).
         quality: Raw quality score from analysis pipeline.
-        user_image_ratings: Dict mapping filename -> int (from kestrel_scenedata.json).
+        user_image_ratings: Dict mapping filename -> int (from kingfisher_scenedata.json).
         thresholds: Optional threshold dict (see quality_to_rating). Defaults to 'balanced'.
 
     Returns:

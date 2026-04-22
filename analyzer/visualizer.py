@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone local web server for the Project Kestrel visualizer (supersedes backend/editor_bridge.py).
+"""Standalone local web server for the Kingfisher visualizer (supersedes backend/editor_bridge.py).
 
 Features:
  - Serves the existing visualizer.html (and any static assets in the folder).
@@ -153,13 +153,13 @@ def _enable_runtime_log_capture() -> str:
 
         base_log_dir = resolve_log_dir(None)
     except Exception:
-        base_log_dir = os.path.join(os.path.expanduser('~'), '.kestrel')
+        base_log_dir = os.path.join(os.path.expanduser('~'), '.kingfisher')
 
     try:
         runtime_dir = os.path.join(base_log_dir, 'logs')
         os.makedirs(runtime_dir, exist_ok=True)
         ts = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
-        runtime_log_path = os.path.join(runtime_dir, f'kestrel_runtime_{ts}.log')
+        runtime_log_path = os.path.join(runtime_dir, f'kingfisher_runtime_{ts}.log')
 
         _RUNTIME_LOG_HANDLE = open(runtime_log_path, 'a', encoding='utf-8', buffering=1)
         sys.stdout = _TeeStream(sys.stdout, _RUNTIME_LOG_HANDLE)
@@ -692,7 +692,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def parse_args():
-    ap = argparse.ArgumentParser(description='Serve Peregrine visualizer with local desktop bridge.')
+    ap = argparse.ArgumentParser(description='Serve Kingfisher visualizer with local desktop bridge.')
     ap.add_argument('--port', type=int, default=8765, help='Port to listen on (default 8765)')
     ap.add_argument('--root', default='', help='Default root folder for RAW originals (client can override unless KESTREL_ALLOWED_ROOT set)')
     return ap.parse_args()
@@ -807,7 +807,7 @@ def main():
         log('Starting windowed UI via pywebview...')
         api = Api() # start maximized
         api._server_port = args.port
-        win = webview.create_window('Peregrine', url, js_api=api, maximized=True)
+        win = webview.create_window('Kingfisher', url, js_api=api, maximized=True)
         api._main_window = win
 
         # When the analysis queue is running, intercept the close event so the
@@ -836,7 +836,7 @@ def main():
                         MB_ICONQUESTION = 0x00000020
                         title = 'Analysis in progress'
                         if _queue_manager.is_paused:
-                            msg = 'Analysis is paused. Exit Peregrine? You can re-open later to resume.'
+                            msg = 'Analysis is paused. Exit Kingfisher? You can re-open later to resume.'
                         else:
                             msg = 'Analysis is in progress. Cancel analysis and exit?'
                         resp = ctypes.windll.user32.MessageBoxW(0, msg, title, MB_YESNOCANCEL | MB_ICONQUESTION)
@@ -864,7 +864,7 @@ def main():
                         root = _tk.Tk()
                         root.withdraw()
                         if _queue_manager.is_paused:
-                            msg = 'Analysis is paused. Exit Peregrine? You can re-open later to resume.'
+                            msg = 'Analysis is paused. Exit Kingfisher? You can re-open later to resume.'
                         else:
                             msg = 'Analysis is in progress. Cancel analysis and exit?'
                         res = _mb.askyesnocancel('Analysis in progress', msg)

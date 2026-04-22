@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""XMP metadata writing utilities for Project Kestrel.
+"""XMP metadata writing utilities for Kingfisher.
 
 Writes XMP sidecar files (.xmp) embedding star ratings, culling labels,
 and analysis metadata (species, family, quality score) alongside image

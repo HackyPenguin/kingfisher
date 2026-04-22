@@ -1,4 +1,6 @@
 from pathlib import Path
+import platform
+
 import cv2
 import numpy as np
 import pandas as pd
@@ -17,11 +19,17 @@ class BirdSpeciesClassifier:
             ) from e
         with open(labels_path, "r") as f:
             self.labels = np.array([l.strip() for l in f.readlines()])
-        providers = ["DmlExecutionProvider", "CPUExecutionProvider"] if use_gpu else ["CPUExecutionProvider"]
+
+        available_providers = ort.get_available_providers()
+        requested_providers = self._select_providers(use_gpu, available_providers)
         try:
-            self.session = ort.InferenceSession(model_path, providers=providers)
+            self.session = ort.InferenceSession(model_path, providers=requested_providers)
         except Exception as e:
-            print(f"Warning: Failed to load ONNX model with specified providers: {e}")
+            print(
+                "Warning: Failed to load ONNX model with requested providers "
+                f"{requested_providers}: {e}. Available providers: {available_providers}. "
+                "Falling back to CPUExecutionProvider."
+            )
             self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
 
         try:
@@ -59,6 +67,25 @@ class BirdSpeciesClassifier:
         family_matrix[fam_indices, np.arange(num_species)] = 1.0
         self.family_matrix = family_matrix
         self._species_family_display = display_families
+
+    @staticmethod
+    def _select_providers(use_gpu: bool, available_providers: list[str]) -> list[str]:
+        system = platform.system()
+        if use_gpu and system == "Windows" and "DmlExecutionProvider" in available_providers:
+            return ["DmlExecutionProvider", "CPUExecutionProvider"]
+
+        if use_gpu and system == "Windows":
+            print(
+                "Warning: GPU acceleration was requested, but DmlExecutionProvider is not available. "
+                f"Available providers: {available_providers}. Falling back to CPUExecutionProvider."
+            )
+        elif use_gpu and system == "Darwin":
+            print(
+                "Info: GPU acceleration was requested on macOS, but this build uses CPUExecutionProvider "
+                f"for bird species classification. Available providers: {available_providers}."
+            )
+
+        return ["CPUExecutionProvider"]
 
     @staticmethod
     def _preprocess(image):

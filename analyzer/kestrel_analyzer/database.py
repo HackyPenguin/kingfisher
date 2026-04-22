@@ -37,11 +37,11 @@ BASE_COLUMNS = [
     "capture_time",
 ]
 
-# Legacy user-editable columns previously stored in kestrel_database.csv.
-# Migrated to kestrel_scenedata.json on first upgrade and stripped from the CSV.
+# Legacy user-editable columns previously stored in kingfisher_database.csv.
+# Migrated to kingfisher_scenedata.json on first upgrade and stripped from the CSV.
 LEGACY_USER_COLUMNS = ["rating", "normalized_rating", "scene_name", "rating_origin"]
 
-# Schema version for kestrel_scenedata.json
+# Schema version for kingfisher_scenedata.json
 SCENEDATA_VERSION = "2.0"
 
 REQUIRED_COLUMNS = [
@@ -120,7 +120,7 @@ def _perform_db_upgrade(
     # Rename old CSV as backup, then save new one without legacy columns
     try:
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        old_path = os.path.join(kestrel_dir, f"OLD_kestrel_database_{timestamp}.csv")
+        old_path = os.path.join(kestrel_dir, f"OLD_kingfisher_database_{timestamp}.csv")
         os.rename(db_path, old_path)
         cleaned = database.drop(
             columns=[c for c in LEGACY_USER_COLUMNS if c in database.columns],
@@ -213,7 +213,7 @@ def _build_scenedata_from_legacy_db(database: pd.DataFrame) -> dict:
 def build_scenedata_from_database(database: pd.DataFrame) -> dict:
     """Build a fresh scenedata dict from a clean (non-legacy) database.
 
-    Used when creating a new kestrel_scenedata.json for a freshly-analyzed folder.
+    Used when creating a new kingfisher_scenedata.json for a freshly-analyzed folder.
     """
     scenedata: dict = {
         "version": SCENEDATA_VERSION,
@@ -290,7 +290,7 @@ def update_scenedata_with_database(scenedata: dict, database: pd.DataFrame) -> d
 
 
 def load_scenedata(kestrel_dir: str) -> dict:
-    """Load kestrel_scenedata.json. Returns an empty initialized dict if the file is missing."""
+    """Load kingfisher_scenedata.json. Returns an empty initialized dict if the file is missing."""
     scenedata_path = os.path.join(kestrel_dir, SCENEDATA_FILENAME)
     if os.path.exists(scenedata_path):
         try:
@@ -307,7 +307,7 @@ def load_scenedata(kestrel_dir: str) -> dict:
 
 
 def save_scenedata(scenedata: dict, kestrel_dir: str) -> None:
-    """Save scenedata dict to kestrel_scenedata.json."""
+    """Save scenedata dict to kingfisher_scenedata.json."""
     scenedata_path = os.path.join(kestrel_dir, SCENEDATA_FILENAME)
     with open(scenedata_path, "w", encoding="utf-8") as f:
         json.dump(scenedata, f, indent=2)
@@ -343,8 +343,10 @@ def ensure_columns(database: pd.DataFrame) -> pd.DataFrame:
 
 
 def save_database(database: pd.DataFrame, db_path: str) -> None:
-    """Save database to CSV, stripping any legacy user columns if accidentally present."""
+    """Save database to CSV atomically, stripping any legacy user columns if accidentally present."""
     cols_to_drop = [c for c in LEGACY_USER_COLUMNS if c in database.columns]
     if cols_to_drop:
         database = database.drop(columns=cols_to_drop)
-    database.to_csv(db_path, index=False)
+    tmp_path = f"{db_path}.tmp"
+    database.to_csv(tmp_path, index=False)
+    os.replace(tmp_path, db_path)

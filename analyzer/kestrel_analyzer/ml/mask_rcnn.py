@@ -194,6 +194,10 @@ class MaskRCNNWrapper:
 
     def get_square_crop(self, mask, img, resize=True):
         bbox = self.get_square_crop_box(mask)
+        return self.get_square_crop_from_box(mask, img, bbox, resize=resize)
+
+    @staticmethod
+    def get_square_crop_from_box(mask, img, bbox, resize=True):
         x_min = bbox["x_min"]
         x_max = bbox["x_max"]
         y_min = bbox["y_min"]
