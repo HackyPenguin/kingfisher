@@ -23,27 +23,21 @@ Kingfisher is now a single, unified application for analyzing and exploring your
 
 > **Breaking change:** Kingfisher intentionally starts with a fresh app state. Old Kestrel settings, telemetry flags, and analysis data are **not migrated or imported**. Re-analyze folders in Kingfisher to generate new `.kingfisher` data.
 
-## Tutorial: 5 Steps to Better Culling
+## Kingfisher in Action
 
-### Step 1: Install & Open
-Download and install Kingfisher, then launch the application to get started.
-![Install Kingfisher](readme_imgs/kestrel-open.png)
+These screenshots show the current Kingfisher implementation using real bird photos from your own library.
 
-### Step 2: Analyze Folders
-Select the folders containing your RAW or JPEG photos. Kingfisher will scan them, detecting birds and estimating image quality.
-![Analyze Folders](readme_imgs/live-analysis.png)
+### 1. Queue folders for analysis
+Add one or more folders to the analysis queue and keep an eye on live progress while Kingfisher works through your RAW files.
+![Analysis queue with real photos](readme_imgs/analysis-queue-closeup.png)
 
-### Step 3: Explore Results
-Browse your collection! Photos are automatically grouped by "scene" (bursts) and organized from sharpest to blurriest.
-![Explore Results](readme_imgs/kestrel-overview.png)
+### 2. Browse real photos by scene
+Once analysis finishes, Kingfisher groups similar frames into scenes, ranks them by quality, and tags them by likely species and family.
+![Kingfisher scene view with real photos](readme_imgs/kingfisher-real-photos.png)
 
-### Step 4: Rapid Culling
-Use the Culling Assistant to quickly split photos into "Accept" and "Reject" groups.
-![Culling Assistant](readme_imgs/culling-assistant.png)
-
-### Step 5: Search & Discover
-Search through thousands of photos by species or family to instantly rediscover shots from any outing.
-![Search](readme_imgs/kestrel-search.png)
+### 3. Cull quickly and review details
+Use the Culling Assistant to compare keepers vs rejects side by side, inspect crops, and make fast decisions on your best frames.
+![Kingfisher culling assistant with real photos](readme_imgs/culling-assistant.png)
 
 ---
 
@@ -193,8 +187,10 @@ This project is licensed under the GPL v3 License with a Commons Clause License 
 
 ## 🙏 Acknowledgments
 
-- **rawpy** library for robust RAW image file format handling
-- **pyinstaller project** for robust python packaging and distribution solutions.
+- **Project Kestrel** for the original foundation that Kingfisher builds on.
+- **iNaturalist** for the broader birding and wildlife community context around species discovery and identification.
+- **rawpy** library for robust RAW image file format handling.
+- **PyInstaller** project for robust Python packaging and distribution solutions.
 
 ---
 
