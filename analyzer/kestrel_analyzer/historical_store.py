@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -16,7 +17,8 @@ from .historical_index import DiscoveredAsset, hash_file_stably
 from .review_policy import Decision, ReviewProposal
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+MANIFEST_SCHEMA_VERSION = 1
 _VERSION_NAMESPACE = uuid.UUID("40f11d91-8f27-4058-ae61-e519dd5e85a1")
 _ACTIONABLE_DECISIONS = frozenset(
     {
@@ -25,6 +27,27 @@ _ACTIONABLE_DECISIONS = frozenset(
         Decision.MANUAL_REVIEW_UNCERTAIN.value,
     }
 )
+_ANALYSIS_FAILURE_CODES = frozenset(
+    {
+        "decoder_failed",
+        "invalid_prediction",
+        "provider_failed",
+        "source_version_mismatch",
+    }
+)
+
+
+@dataclass(frozen=True)
+class AnalysisAssetVersion:
+    """A current, stable source version resolved for analysis."""
+
+    asset_id: str
+    asset_version_id: str
+    relative_path: str
+    source_path: Path
+    fingerprint_algorithm: str
+    content_digest: str
+    byte_size: int
 
 
 def _utc_now() -> str:
@@ -206,6 +229,54 @@ class HistoricalStore:
                 created_at TEXT NOT NULL,
                 UNIQUE(asset_version_id, analysis_run_id)
             );
+
+            CREATE TABLE IF NOT EXISTS analysis_attempt_failures (
+                attempt_id TEXT PRIMARY KEY,
+                asset_version_id TEXT NOT NULL REFERENCES asset_versions(asset_version_id),
+                analysis_run_id TEXT NOT NULL REFERENCES analysis_runs(analysis_run_id),
+                error_code TEXT NOT NULL CHECK (error_code IN (
+                    'decoder_failed', 'invalid_prediction', 'provider_failed',
+                    'source_version_mismatch'
+                )),
+                retryable INTEGER NOT NULL CHECK (retryable = 1),
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TRIGGER IF NOT EXISTS analysis_attempt_failures_no_update
+            BEFORE UPDATE ON analysis_attempt_failures
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis attempt failures are immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS analysis_attempt_failures_no_delete
+            BEFORE DELETE ON analysis_attempt_failures
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis attempt failures are immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS analysis_runs_no_update
+            BEFORE UPDATE ON analysis_runs
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis runs are immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS analysis_runs_no_delete
+            BEFORE DELETE ON analysis_runs
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis runs are immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS analysis_results_no_update
+            BEFORE UPDATE ON analysis_results
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis results are immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS analysis_results_no_delete
+            BEFORE DELETE ON analysis_results
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis results are immutable');
+            END;
 
             CREATE TABLE IF NOT EXISTS review_proposals (
                 proposal_id TEXT PRIMARY KEY,
@@ -552,6 +623,68 @@ class HistoricalStore:
             raise ValueError("asset has no stable current version")
         return str(row[0])
 
+    def resolve_analysis_asset(
+        self,
+        library_id: str,
+        relative_path: str,
+    ) -> AnalysisAssetVersion:
+        """Resolve only an active current version beneath ``source_root``."""
+
+        library_id = _require_identifier(library_id, "library_id")
+        relative_path = _require_identifier(relative_path, "relative_path")
+        row = self.connection.execute(
+            """
+            SELECT a.asset_id, a.current_asset_version_id,
+                   a.canonical_relative_path, v.fingerprint_algorithm,
+                   v.content_digest, v.byte_size
+            FROM assets AS a
+            JOIN asset_versions AS v
+              ON v.asset_version_id = a.current_asset_version_id
+            WHERE a.library_id = ?
+              AND a.canonical_relative_path = ?
+              AND a.state = 'active'
+              AND v.source_stable = 1
+            """,
+            (library_id, relative_path),
+        ).fetchone()
+        if row is None:
+            raise ValueError("asset has no stable current version")
+
+        lexical_path = self.source_root / str(row["canonical_relative_path"])
+        resolved_path = lexical_path.resolve(strict=True)
+        if not _is_within(resolved_path, self.source_root):
+            raise ValueError("analysis source must be beneath source_root")
+        if resolved_path != lexical_path:
+            raise ValueError("analysis source path must not traverse symlinks")
+        if not resolved_path.is_file():
+            raise ValueError("analysis source must be a regular file")
+        return AnalysisAssetVersion(
+            asset_id=str(row["asset_id"]),
+            asset_version_id=str(row["current_asset_version_id"]),
+            relative_path=str(row["canonical_relative_path"]),
+            source_path=resolved_path,
+            fingerprint_algorithm=str(row["fingerprint_algorithm"]),
+            content_digest=str(row["content_digest"]),
+            byte_size=int(row["byte_size"]),
+        )
+
+    def assert_current_analysis_asset(self, asset: AnalysisAssetVersion) -> None:
+        if not isinstance(asset, AnalysisAssetVersion):
+            raise TypeError("asset must be an AnalysisAssetVersion")
+        row = self.connection.execute(
+            """
+            SELECT current_asset_version_id, state
+            FROM assets WHERE asset_id = ?
+            """,
+            (asset.asset_id,),
+        ).fetchone()
+        if (
+            row is None
+            or row["state"] != "active"
+            or row["current_asset_version_id"] != asset.asset_version_id
+        ):
+            raise ValueError("indexed asset version is no longer current")
+
     def scan_status(self, scan_id: str) -> str:
         row = self.connection.execute(
             "SELECT status FROM scan_runs WHERE scan_id = ?",
@@ -682,6 +815,70 @@ class HistoricalStore:
                 (*expected, _utc_now()),
             )
 
+    def analysis_result(
+        self,
+        asset_version_id: str,
+        analysis_run_id: str,
+    ) -> tuple[str, Mapping[str, Any]] | None:
+        row = self.connection.execute(
+            """
+            SELECT result_id, canonical_output_json
+            FROM analysis_results
+            WHERE asset_version_id = ? AND analysis_run_id = ?
+              AND status = 'analysed'
+            """,
+            (asset_version_id, analysis_run_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return str(row["result_id"]), json.loads(row["canonical_output_json"])
+
+    def record_analysis_failure(
+        self,
+        asset_version_id: str,
+        analysis_run_id: str,
+        error_code: str,
+    ) -> str:
+        """Append one retryable failure without retaining exception details."""
+
+        if error_code not in _ANALYSIS_FAILURE_CODES:
+            raise ValueError("unsupported analysis failure code")
+        attempt_id = str(uuid.uuid4())
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO analysis_attempt_failures(
+                    attempt_id, asset_version_id, analysis_run_id,
+                    error_code, retryable, created_at
+                ) VALUES (?, ?, ?, ?, 1, ?)
+                """,
+                (
+                    attempt_id,
+                    asset_version_id,
+                    analysis_run_id,
+                    error_code,
+                    _utc_now(),
+                ),
+            )
+        return attempt_id
+
+    def analysis_failures(self) -> tuple[Mapping[str, Any], ...]:
+        rows = self.connection.execute(
+            """
+            SELECT attempt_id, asset_version_id, analysis_run_id,
+                   error_code, retryable, created_at
+            FROM analysis_attempt_failures
+            ORDER BY created_at, attempt_id
+            """
+        ).fetchall()
+        return tuple(dict(row) for row in rows)
+
+    def analysis_result_count(self) -> int:
+        return int(self.connection.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0])
+
+    def review_proposal_count(self) -> int:
+        return int(self.connection.execute("SELECT COUNT(*) FROM review_proposals").fetchone()[0])
+
     def record_review_proposal(
         self,
         proposal_id: str,
@@ -792,7 +989,7 @@ class HistoricalStore:
             )
         payload = (
             json.dumps(
-                {"proposals": proposals, "schema_version": SCHEMA_VERSION},
+                {"proposals": proposals, "schema_version": MANIFEST_SCHEMA_VERSION},
                 ensure_ascii=False,
                 indent=2,
                 sort_keys=True,

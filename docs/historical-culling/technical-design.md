@@ -93,6 +93,42 @@ apply one Lightroom catalogue transaction, then finalize the ledger with the
 post-apply catalogue revision and exact metadata. An unresolved prepared
 operation may only be finalized from exact proof or moved to manual recovery.
 
+## Slice 3 BioCLIP analysis stream
+
+Historical BioCLIP analysis is a separate runner and never invokes the legacy
+folder pipeline. It resolves an active current `asset_version` from
+`HistoricalStore`, reads it once through no-follow descriptors anchored at the
+configured `source_root`, verifies the indexed full SHA-256, and decodes only
+those verified in-memory bytes. The only writes are database-guarded immutable
+`analysis_runs` and `analysis_results`, plus append-only retry diagnostics that
+retain a closed error code rather than exception text.
+
+The lazy adapter is pinned to `pybioclip==2.1.6` and fails closed unless the
+installed package matches that version. It performs no remote Hugging Face
+metadata lookup, so startup and inference can use an already-populated local
+cache while offline. The configured expected model revision, model weights
+SHA-256, TreeOfLife-200M dataset revision, and taxonomy artifact SHA-256 values
+remain part of the run identity and result provenance. This slice does not
+locate and hash the artifacts actually opened by `pybioclip`, so provenance
+labels all those expectations `configured-unverified` instead of claiming
+local artifact verification. Broad inference uses one
+`CustomLabelsClassifier` with a positive/`scene without ...` prompt pair per
+closed category. Each positive score is normalized only against its paired
+negative score, cancelling the classifier's shared softmax denominator and
+producing independent multi-label evidence for `landscape`, `architecture`,
+`human`, and `animal`. Every finite score is retained in that order.
+`TreeOfLifeClassifier` with `Rank.SPECIES` runs only when the animal score meets
+the configured threshold. Optional candidate species are applied through the
+official taxonomy filter API. Model and taxonomy artifact configuration,
+candidate set, threshold, top-k, output contract, and preprocessing provenance
+all participate in the analysis-run identity.
+
+The closed result document labels both broad and taxonomic predictions as
+suggestions rather than ground truth. It has no proposal, rating, pick/reject,
+delete, move, sidecar, or XMP operation. A successful version/run pair is
+idempotent; failures leave it stale for retry and never mutate earlier failure
+attempts.
+
 ## Testing strategy
 
 The policy is covered with standard-library unit tests, including edited
@@ -104,4 +140,7 @@ Scanner and SQLite integration tests now cover deterministic recursive
 discovery, duplicate basenames, symlink exclusion, full source hashing,
 idempotent scans, content changes, timestamp-preserving replacement audits,
 interrupted restart, version-aware analysis staleness, immutable results, and
-stable dry-run export.
+stable dry-run export. BioCLIP tests use fake providers, a fake decoder, and
+fake import modules so they exercise gating, provenance identities, closed
+deterministic outputs, retries, source/version validation, and source/sidecar
+safety without importing a real model or downloading weights.
