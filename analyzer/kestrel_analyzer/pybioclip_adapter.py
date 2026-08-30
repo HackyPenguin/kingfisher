@@ -75,7 +75,7 @@ class PyBioClipProvider:
             for label in labels_tuple
             for prompt in (label, f"scene without {label}")
         )
-        raw_predictions = self._broad_classifier.predict(image, k=len(prompts))
+        raw_predictions = self._broad_classifier.predict([image], k=len(prompts))
         scores: dict[str, float] = {}
         for prediction in raw_predictions:
             classification = prediction["classification"]
@@ -127,7 +127,7 @@ class PyBioClipProvider:
         elif candidates_tuple != self._taxonomy_candidates:
             raise ValueError("taxonomy candidates cannot change after initialization")
         return self._taxonomy_classifier.predict(
-            image,
+            [image],
             self._species_rank,
             k=top_k,
         )

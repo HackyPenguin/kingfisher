@@ -642,10 +642,10 @@ class PyBioClipAdapterTests(unittest.TestCase):
         )
         self.assertEqual("hf-hub:imageomics/bioclip-2", instances[0][2]["model_str"])
         self.assertEqual("cpu", instances[0][2]["device"])
-        self.assertIn(("broad-predict", "image", {"k": 8}), calls)
+        self.assertIn(("broad-predict", ["image"], {"k": 8}), calls)
         self.assertIn(("create-filter", "species-rank", ("Alcedo atthis",)), calls)
         self.assertIn(("apply-filter", "filter"), calls)
-        self.assertIn(("taxonomy-predict", "image", "species-rank", {"k": 3}), calls)
+        self.assertIn(("taxonomy-predict", ["image"], "species-rank", {"k": 3}), calls)
 
         provider.predict_broad("second", ("landscape", "architecture", "human", "animal"))
         provider.predict_taxonomy("second", ("Alcedo atthis",), 1)
