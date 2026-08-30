@@ -1,0 +1,821 @@
+"""Transactional SQLite state for the non-destructive historical workflow."""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import sqlite3
+from typing import Any, Iterator, Mapping
+import uuid
+
+from .historical_index import DiscoveredAsset, hash_file_stably
+from .review_policy import Decision, ReviewProposal
+
+
+SCHEMA_VERSION = 1
+_VERSION_NAMESPACE = uuid.UUID("40f11d91-8f27-4058-ae61-e519dd5e85a1")
+_ACTIONABLE_DECISIONS = frozenset(
+    {
+        Decision.CLEAR_AI_REVIEW.value,
+        Decision.MANUAL_REVIEW_FOCUS.value,
+        Decision.MANUAL_REVIEW_UNCERTAIN.value,
+    }
+)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _is_within(candidate: Path, parent: Path) -> bool:
+    try:
+        candidate.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _require_identifier(value: str, name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string")
+    normalised = value.strip()
+    if not normalised:
+        raise ValueError(f"{name} must not be blank")
+    return normalised
+
+
+class HistoricalStore:
+    """Single-writer durable state, always outside the source photo root."""
+
+    def __init__(self, state_root: Path | str, source_root: Path | str) -> None:
+        self.source_root = Path(source_root).resolve(strict=True)
+        state_path = Path(state_root).expanduser()
+        self.state_root = state_path.resolve(strict=False)
+        if _is_within(self.state_root, self.source_root):
+            raise ValueError("state_root must be outside source_root")
+        self.state_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self.state_root, 0o700)
+        self.database_path = self.state_root / "historical.sqlite3"
+        self._connection = sqlite3.connect(
+            self.database_path,
+            isolation_level=None,
+            timeout=5.0,
+        )
+        self._connection.row_factory = sqlite3.Row
+        self._connection.execute("PRAGMA foreign_keys=ON")
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA synchronous=FULL")
+        self._connection.execute("PRAGMA busy_timeout=5000")
+        os.chmod(self.database_path, 0o600)
+        self._migrate()
+
+    def __enter__(self) -> "HistoricalStore":
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
+
+    @property
+    def connection(self) -> sqlite3.Connection:
+        if self._connection is None:
+            raise RuntimeError("store is closed")
+        return self._connection
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        connection = self.connection
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            yield connection
+        except Exception:
+            connection.rollback()
+            raise
+        else:
+            connection.commit()
+
+    def _migrate(self) -> None:
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS libraries (
+                library_id TEXT PRIMARY KEY,
+                root_identity TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                retired_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS scan_runs (
+                scan_id TEXT PRIMARY KEY,
+                library_id TEXT NOT NULL REFERENCES libraries(library_id),
+                root_config_digest TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                last_checkpoint_path TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS assets (
+                asset_id TEXT PRIMARY KEY,
+                library_id TEXT NOT NULL REFERENCES libraries(library_id),
+                canonical_relative_path TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                extension TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('raw', 'rendered')),
+                first_seen_at TEXT NOT NULL,
+                last_seen_scan_id TEXT REFERENCES scan_runs(scan_id),
+                state TEXT NOT NULL CHECK (state IN ('active', 'missing')),
+                current_asset_version_id TEXT REFERENCES asset_versions(asset_version_id),
+                current_byte_size INTEGER,
+                current_mtime_ns INTEGER,
+                UNIQUE(library_id, canonical_relative_path)
+            );
+
+            CREATE TABLE IF NOT EXISTS asset_versions (
+                asset_version_id TEXT PRIMARY KEY,
+                asset_id TEXT NOT NULL REFERENCES assets(asset_id),
+                fingerprint_algorithm TEXT NOT NULL,
+                content_digest TEXT NOT NULL,
+                byte_size INTEGER NOT NULL,
+                mtime_ns INTEGER NOT NULL,
+                device INTEGER,
+                inode INTEGER,
+                observed_at TEXT NOT NULL,
+                source_stable INTEGER NOT NULL CHECK (source_stable = 1),
+                UNIQUE(asset_id, fingerprint_algorithm, content_digest)
+            );
+
+            CREATE TABLE IF NOT EXISTS scan_observations (
+                scan_id TEXT NOT NULL REFERENCES scan_runs(scan_id) ON DELETE CASCADE,
+                asset_id TEXT NOT NULL REFERENCES assets(asset_id),
+                asset_version_id TEXT REFERENCES asset_versions(asset_version_id),
+                relative_path TEXT NOT NULL,
+                byte_size INTEGER NOT NULL,
+                mtime_ns INTEGER NOT NULL,
+                PRIMARY KEY(scan_id, asset_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS scan_errors (
+                error_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scan_id TEXT NOT NULL REFERENCES scan_runs(scan_id) ON DELETE CASCADE,
+                relative_path TEXT NOT NULL,
+                code TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS analysis_runs (
+                analysis_run_id TEXT PRIMARY KEY,
+                analyzer_version TEXT NOT NULL,
+                model_digest TEXT NOT NULL,
+                policy_digest TEXT NOT NULL,
+                config_digest TEXT NOT NULL,
+                canonical_config_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(analyzer_version, model_digest, policy_digest, config_digest)
+            );
+
+            CREATE TABLE IF NOT EXISTS analysis_results (
+                result_id TEXT PRIMARY KEY,
+                asset_version_id TEXT NOT NULL REFERENCES asset_versions(asset_version_id),
+                analysis_run_id TEXT NOT NULL REFERENCES analysis_runs(analysis_run_id),
+                output_schema_version INTEGER NOT NULL,
+                canonical_output_json TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('analysed', 'superseded')),
+                created_at TEXT NOT NULL,
+                UNIQUE(asset_version_id, analysis_run_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS review_proposals (
+                proposal_id TEXT PRIMARY KEY,
+                asset_id TEXT NOT NULL REFERENCES assets(asset_id),
+                analysis_result_id TEXT NOT NULL REFERENCES analysis_results(result_id),
+                decision TEXT NOT NULL CHECK (decision IN (
+                    'none', 'protected_keep', 'clear_ai_review',
+                    'manual_review_focus', 'manual_review_uncertain'
+                )),
+                canonical_delta_json TEXT NOT NULL,
+                lifecycle TEXT NOT NULL CHECK (lifecycle IN ('proposed', 'superseded', 'applied')),
+                created_at TEXT NOT NULL,
+                supersedes_proposal_id TEXT REFERENCES review_proposals(proposal_id)
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS one_current_proposal_per_asset
+                ON review_proposals(asset_id) WHERE lifecycle = 'proposed';
+
+            CREATE TABLE IF NOT EXISTS application_operations (
+                operation_id TEXT PRIMARY KEY,
+                proposal_id TEXT NOT NULL UNIQUE REFERENCES review_proposals(proposal_id),
+                asset_id TEXT NOT NULL REFERENCES assets(asset_id),
+                expected_receipt_json TEXT,
+                status TEXT NOT NULL CHECK (status IN (
+                    'prepared', 'applied', 'superseded', 'needs_manual_recovery'
+                )),
+                prepared_at TEXT NOT NULL,
+                applied_at TEXT,
+                post_apply_metadata_revision TEXT,
+                exact_applied_keyword TEXT,
+                exact_applied_colour TEXT,
+                failure_reason TEXT
+            );
+            """
+        )
+        self.connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (SCHEMA_VERSION, _utc_now()),
+        )
+
+    def pragma_value(self, name: str) -> Any:
+        if name not in {"journal_mode", "foreign_keys", "synchronous", "busy_timeout"}:
+            raise ValueError("unsupported pragma")
+        row = self.connection.execute(f"PRAGMA {name}").fetchone()
+        return row[0]
+
+    def integrity_check(self) -> str:
+        return str(self.connection.execute("PRAGMA integrity_check").fetchone()[0])
+
+    def begin_scan(self, library_id: str, source_root: Path, root_config_digest: str) -> str:
+        library_id = _require_identifier(library_id, "library_id")
+        root_config_digest = _require_identifier(root_config_digest, "root_config_digest")
+        resolved_root = Path(source_root).resolve(strict=True)
+        if resolved_root != self.source_root:
+            raise ValueError("scan source_root must match the store source_root")
+        # Identity is explicitly configured and independent of the current
+        # mount path, so remounting a NAS library does not invalidate assets.
+        root_identity = library_id
+        scan_id = str(uuid.uuid4())
+        now = _utc_now()
+        with self.transaction() as connection:
+            existing = connection.execute(
+                "SELECT root_identity FROM libraries WHERE library_id = ?",
+                (library_id,),
+            ).fetchone()
+            if existing is not None and existing[0] != root_identity:
+                raise ValueError("library identity is inconsistent with the existing store")
+            connection.execute(
+                "INSERT OR IGNORE INTO libraries(library_id, root_identity, created_at) VALUES (?, ?, ?)",
+                (library_id, root_identity, now),
+            )
+            connection.execute(
+                """
+                INSERT INTO scan_runs(
+                    scan_id, library_id, root_config_digest, status, started_at
+                ) VALUES (?, ?, ?, 'running', ?)
+                """,
+                (scan_id, library_id, root_config_digest, now),
+            )
+        return scan_id
+
+    def restart_scan(self, scan_id: str, library_id: str) -> None:
+        with self.transaction() as connection:
+            row = connection.execute(
+                "SELECT library_id, status FROM scan_runs WHERE scan_id = ?",
+                (scan_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("unknown scan_id")
+            if row["library_id"] != library_id:
+                raise ValueError("scan belongs to another library")
+            if row["status"] != "running":
+                raise ValueError("only an interrupted running scan can be resumed")
+            connection.execute("DELETE FROM scan_observations WHERE scan_id = ?", (scan_id,))
+            connection.execute("DELETE FROM scan_errors WHERE scan_id = ?", (scan_id,))
+            connection.execute(
+                "UPDATE scan_runs SET last_checkpoint_path = NULL WHERE scan_id = ?",
+                (scan_id,),
+            )
+
+    def record_scan_error(self, scan_id: str, relative_path: str, code: str) -> None:
+        with self.transaction() as connection:
+            connection.execute(
+                "INSERT INTO scan_errors(scan_id, relative_path, code, created_at) VALUES (?, ?, ?, ?)",
+                (scan_id, relative_path, code, _utc_now()),
+            )
+
+    def _upsert_asset(self, connection: sqlite3.Connection, scan_id: str, asset: DiscoveredAsset) -> None:
+        now = _utc_now()
+        existing = connection.execute(
+            "SELECT asset_id FROM assets WHERE library_id = ? AND canonical_relative_path = ?",
+            (asset.library_id, asset.relative_path),
+        ).fetchone()
+        if existing is not None and existing["asset_id"] != asset.asset_id:
+            raise ValueError("canonical path resolved to an inconsistent asset identity")
+        connection.execute(
+            """
+            INSERT INTO assets(
+                asset_id, library_id, canonical_relative_path, display_name,
+                extension, kind, first_seen_at, last_seen_scan_id, state,
+                current_byte_size, current_mtime_ns
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            ON CONFLICT(asset_id) DO UPDATE SET
+                display_name = excluded.display_name,
+                extension = excluded.extension,
+                kind = excluded.kind,
+                last_seen_scan_id = excluded.last_seen_scan_id,
+                state = 'active'
+            """,
+            (
+                asset.asset_id,
+                asset.library_id,
+                asset.relative_path,
+                asset.display_name,
+                asset.extension,
+                asset.kind,
+                now,
+                scan_id,
+                asset.byte_size,
+                asset.mtime_ns,
+            ),
+        )
+
+    def observe_asset(
+        self,
+        scan_id: str,
+        asset: DiscoveredAsset,
+        source_path: Path,
+        *,
+        force_hash: bool = False,
+    ) -> str:
+        resolved_source = Path(source_path).resolve(strict=True)
+        expected_source = self.source_root / asset.relative_path
+        if resolved_source != expected_source or not _is_within(resolved_source, self.source_root):
+            raise ValueError("source path does not match the indexed root-relative path")
+        current = self.connection.execute(
+            """
+            SELECT current_asset_version_id, current_byte_size, current_mtime_ns
+            FROM assets WHERE asset_id = ?
+            """,
+            (asset.asset_id,),
+        ).fetchone()
+        unchanged = (
+            current is not None
+            and current["current_asset_version_id"] is not None
+            and current["current_byte_size"] == asset.byte_size
+            and current["current_mtime_ns"] == asset.mtime_ns
+        )
+        prior_version_id = (
+            None if current is None else current["current_asset_version_id"]
+        )
+        fingerprint = None if unchanged and not force_hash else hash_file_stably(resolved_source)
+        if fingerprint is None:
+            version_id = str(current["current_asset_version_id"])
+            byte_size = asset.byte_size
+            mtime_ns = asset.mtime_ns
+        else:
+            version_id = str(
+                uuid.uuid5(
+                    _VERSION_NAMESPACE,
+                    f"{asset.asset_id}\0{fingerprint.algorithm}\0{fingerprint.content_digest}",
+                )
+            )
+            byte_size = fingerprint.byte_size
+            mtime_ns = fingerprint.mtime_ns
+
+        with self.transaction() as connection:
+            self._upsert_asset(connection, scan_id, asset)
+            if fingerprint is not None:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO asset_versions(
+                        asset_version_id, asset_id, fingerprint_algorithm,
+                        content_digest, byte_size, mtime_ns, device, inode,
+                        observed_at, source_stable
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    """,
+                    (
+                        version_id,
+                        asset.asset_id,
+                        fingerprint.algorithm,
+                        fingerprint.content_digest,
+                        fingerprint.byte_size,
+                        fingerprint.mtime_ns,
+                        fingerprint.device,
+                        fingerprint.inode,
+                        _utc_now(),
+                    ),
+                )
+            if prior_version_id is not None and prior_version_id != version_id:
+                connection.execute(
+                    """
+                    UPDATE review_proposals SET lifecycle = 'superseded'
+                    WHERE asset_id = ? AND lifecycle = 'proposed'
+                    """,
+                    (asset.asset_id,),
+                )
+            connection.execute(
+                """
+                UPDATE assets SET current_asset_version_id = ?, current_byte_size = ?,
+                    current_mtime_ns = ?, last_seen_scan_id = ?, state = 'active'
+                WHERE asset_id = ?
+                """,
+                (version_id, byte_size, mtime_ns, scan_id, asset.asset_id),
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO scan_observations(
+                    scan_id, asset_id, asset_version_id, relative_path, byte_size, mtime_ns
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (scan_id, asset.asset_id, version_id, asset.relative_path, byte_size, mtime_ns),
+            )
+            connection.execute(
+                "UPDATE scan_runs SET last_checkpoint_path = ? WHERE scan_id = ?",
+                (asset.relative_path, scan_id),
+            )
+        return version_id
+
+    def mark_seen_without_version(self, scan_id: str, asset: DiscoveredAsset) -> None:
+        with self.transaction() as connection:
+            self._upsert_asset(connection, scan_id, asset)
+            connection.execute(
+                """
+                UPDATE review_proposals SET lifecycle = 'superseded'
+                WHERE asset_id = ? AND lifecycle = 'proposed'
+                """,
+                (asset.asset_id,),
+            )
+            connection.execute(
+                """
+                UPDATE assets SET current_asset_version_id = NULL,
+                    current_byte_size = ?, current_mtime_ns = ?,
+                    last_seen_scan_id = ?, state = 'active'
+                WHERE asset_id = ?
+                """,
+                (
+                    asset.byte_size,
+                    asset.mtime_ns,
+                    scan_id,
+                    asset.asset_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO scan_observations(
+                    scan_id, asset_id, asset_version_id, relative_path, byte_size, mtime_ns
+                ) VALUES (?, ?, NULL, ?, ?, ?)
+                """,
+                (scan_id, asset.asset_id, asset.relative_path, asset.byte_size, asset.mtime_ns),
+            )
+            connection.execute(
+                "UPDATE scan_runs SET last_checkpoint_path = ? WHERE scan_id = ?",
+                (asset.relative_path, scan_id),
+            )
+
+    def complete_scan(self, scan_id: str) -> None:
+        now = _utc_now()
+        with self.transaction() as connection:
+            row = connection.execute(
+                "SELECT library_id, status FROM scan_runs WHERE scan_id = ?",
+                (scan_id,),
+            ).fetchone()
+            if row is None or row["status"] != "running":
+                raise ValueError("scan is not running")
+            connection.execute(
+                """
+                UPDATE assets SET state = 'missing'
+                WHERE library_id = ?
+                  AND asset_id NOT IN (
+                      SELECT asset_id FROM scan_observations WHERE scan_id = ?
+                  )
+                """,
+                (row["library_id"], scan_id),
+            )
+            connection.execute(
+                "UPDATE scan_runs SET status = 'completed', completed_at = ? WHERE scan_id = ?",
+                (now, scan_id),
+            )
+
+    def asset_count(self) -> int:
+        return int(self.connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0])
+
+    def asset_version_count(self) -> int:
+        return int(self.connection.execute("SELECT COUNT(*) FROM asset_versions").fetchone()[0])
+
+    def list_asset_paths(self) -> tuple[str, ...]:
+        rows = self.connection.execute(
+            """
+            SELECT canonical_relative_path FROM assets
+            WHERE state = 'active'
+            ORDER BY canonical_relative_path COLLATE NOCASE, canonical_relative_path
+            """
+        ).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def asset_id(self, library_id: str, relative_path: str) -> str:
+        row = self.connection.execute(
+            "SELECT asset_id FROM assets WHERE library_id = ? AND canonical_relative_path = ?",
+            (library_id, relative_path),
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown asset")
+        return str(row[0])
+
+    def asset_state(self, library_id: str, relative_path: str) -> str:
+        row = self.connection.execute(
+            "SELECT state FROM assets WHERE library_id = ? AND canonical_relative_path = ?",
+            (library_id, relative_path),
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown asset")
+        return str(row[0])
+
+    def current_version_id(self, library_id: str, relative_path: str) -> str:
+        row = self.connection.execute(
+            """
+            SELECT current_asset_version_id FROM assets
+            WHERE library_id = ? AND canonical_relative_path = ? AND state = 'active'
+            """,
+            (library_id, relative_path),
+        ).fetchone()
+        if row is None or row[0] is None:
+            raise ValueError("asset has no stable current version")
+        return str(row[0])
+
+    def scan_status(self, scan_id: str) -> str:
+        row = self.connection.execute(
+            "SELECT status FROM scan_runs WHERE scan_id = ?",
+            (scan_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown scan")
+        return str(row[0])
+
+    def scan_checkpoint(self, scan_id: str) -> str | None:
+        row = self.connection.execute(
+            "SELECT last_checkpoint_path FROM scan_runs WHERE scan_id = ?",
+            (scan_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown scan")
+        return None if row[0] is None else str(row[0])
+
+    def proposal_lifecycle(self, proposal_id: str) -> str:
+        row = self.connection.execute(
+            "SELECT lifecycle FROM review_proposals WHERE proposal_id = ?",
+            (proposal_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown proposal")
+        return str(row[0])
+
+    def ensure_analysis_run(
+        self,
+        analyzer_version: str,
+        model_digest: str,
+        policy_digest: str,
+        config: Mapping[str, Any],
+    ) -> str:
+        analyzer_version = _require_identifier(analyzer_version, "analyzer_version")
+        model_digest = _require_identifier(model_digest, "model_digest")
+        policy_digest = _require_identifier(policy_digest, "policy_digest")
+        canonical_config = _canonical_json(config)
+        config_digest = hashlib.sha256(canonical_config.encode("utf-8")).hexdigest()
+        identity = _canonical_json(
+            {
+                "analyzer_version": analyzer_version,
+                "config_digest": config_digest,
+                "model_digest": model_digest,
+                "policy_digest": policy_digest,
+            }
+        )
+        run_id = "analysis-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO analysis_runs(
+                    analysis_run_id, analyzer_version, model_digest, policy_digest,
+                    config_digest, canonical_config_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    analyzer_version,
+                    model_digest,
+                    policy_digest,
+                    config_digest,
+                    canonical_config,
+                    _utc_now(),
+                ),
+            )
+        return run_id
+
+    def stale_asset_paths(self, analysis_run_id: str) -> tuple[str, ...]:
+        rows = self.connection.execute(
+            """
+            SELECT a.canonical_relative_path
+            FROM assets AS a
+            WHERE a.state = 'active'
+              AND a.current_asset_version_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM analysis_results AS r
+                  WHERE r.asset_version_id = a.current_asset_version_id
+                    AND r.analysis_run_id = ?
+                    AND r.status = 'analysed'
+              )
+            ORDER BY a.canonical_relative_path COLLATE NOCASE, a.canonical_relative_path
+            """,
+            (analysis_run_id,),
+        ).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def record_analysis_result(
+        self,
+        result_id: str,
+        asset_version_id: str,
+        analysis_run_id: str,
+        output: Mapping[str, Any],
+        *,
+        output_schema_version: int = 1,
+    ) -> None:
+        result_id = _require_identifier(result_id, "result_id")
+        canonical_output = _canonical_json(output)
+        existing = self.connection.execute(
+            """
+            SELECT result_id, asset_version_id, analysis_run_id,
+                   output_schema_version, canonical_output_json
+            FROM analysis_results
+            WHERE result_id = ? OR (asset_version_id = ? AND analysis_run_id = ?)
+            """,
+            (result_id, asset_version_id, analysis_run_id),
+        ).fetchone()
+        expected = (
+            result_id,
+            asset_version_id,
+            analysis_run_id,
+            output_schema_version,
+            canonical_output,
+        )
+        if existing is not None:
+            actual = tuple(existing[key] for key in existing.keys())
+            if actual != expected:
+                raise ValueError("analysis results are immutable")
+            return
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO analysis_results(
+                    result_id, asset_version_id, analysis_run_id,
+                    output_schema_version, canonical_output_json, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, 'analysed', ?)
+                """,
+                (*expected, _utc_now()),
+            )
+
+    def record_review_proposal(
+        self,
+        proposal_id: str,
+        asset_id: str,
+        result_id: str,
+        proposal: ReviewProposal,
+    ) -> None:
+        if not isinstance(proposal, ReviewProposal):
+            raise TypeError("proposal must be a ReviewProposal")
+        proposal_id = _require_identifier(proposal_id, "proposal_id")
+        if proposal.result_id != result_id:
+            raise ValueError("proposal result does not match result_id")
+        canonical_delta = _canonical_json(proposal.to_dict())
+        existing = self.connection.execute(
+            """
+            SELECT asset_id, analysis_result_id, decision, canonical_delta_json
+            FROM review_proposals WHERE proposal_id = ?
+            """,
+            (proposal_id,),
+        ).fetchone()
+        expected = (asset_id, result_id, proposal.decision.value, canonical_delta)
+        if existing is not None:
+            actual = tuple(existing[key] for key in existing.keys())
+            if actual != expected:
+                raise ValueError("review proposals are immutable")
+            return
+
+        result_asset = self.connection.execute(
+            """
+            SELECT v.asset_id
+            FROM analysis_results AS r
+            JOIN asset_versions AS v ON v.asset_version_id = r.asset_version_id
+            WHERE r.result_id = ?
+            """,
+            (result_id,),
+        ).fetchone()
+        if result_asset is None or result_asset[0] != asset_id:
+            raise ValueError("result does not belong to asset")
+
+        with self.transaction() as connection:
+            previous = connection.execute(
+                "SELECT proposal_id FROM review_proposals WHERE asset_id = ? AND lifecycle = 'proposed'",
+                (asset_id,),
+            ).fetchone()
+            if previous is not None:
+                connection.execute(
+                    "UPDATE review_proposals SET lifecycle = 'superseded' WHERE proposal_id = ?",
+                    (previous[0],),
+                )
+            connection.execute(
+                """
+                INSERT INTO review_proposals(
+                    proposal_id, asset_id, analysis_result_id, decision,
+                    canonical_delta_json, lifecycle, created_at, supersedes_proposal_id
+                ) VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?)
+                """,
+                (
+                    proposal_id,
+                    asset_id,
+                    result_id,
+                    proposal.decision.value,
+                    canonical_delta,
+                    _utc_now(),
+                    None if previous is None else previous[0],
+                ),
+            )
+
+    def export_dry_run_manifest(self, destination: Path | str) -> bytes:
+        destination_path = Path(destination).resolve(strict=False)
+        if not _is_within(destination_path, self.state_root):
+            raise ValueError("manifest destination must be within state_root")
+        rows = self.connection.execute(
+            """
+            SELECT p.proposal_id, p.asset_id, a.library_id,
+                   a.canonical_relative_path, p.analysis_result_id,
+                   p.canonical_delta_json
+            FROM review_proposals AS p
+            JOIN assets AS a ON a.asset_id = p.asset_id
+            JOIN analysis_results AS r ON r.result_id = p.analysis_result_id
+            WHERE p.lifecycle = 'proposed'
+              AND r.asset_version_id = a.current_asset_version_id
+              AND p.decision IN (
+                  'clear_ai_review', 'manual_review_focus', 'manual_review_uncertain'
+              )
+            ORDER BY a.library_id COLLATE NOCASE, a.library_id,
+                     a.canonical_relative_path COLLATE NOCASE, a.canonical_relative_path,
+                     p.analysis_result_id
+            """
+        ).fetchall()
+        proposals = []
+        for row in rows:
+            delta = json.loads(row["canonical_delta_json"])
+            if delta["decision"] not in _ACTIONABLE_DECISIONS:
+                continue
+            proposals.append(
+                {
+                    "asset_id": row["asset_id"],
+                    "decision": delta["decision"],
+                    "keyword": delta["keyword"],
+                    "library_id": row["library_id"],
+                    "proposal_id": row["proposal_id"],
+                    "relative_path": row["canonical_relative_path"],
+                    "result_id": row["analysis_result_id"],
+                    "review_reason": delta["review_reason"],
+                    "suggested_color": delta["suggested_color"],
+                    "supersedes": delta["supersedes"],
+                }
+            )
+        payload = (
+            json.dumps(
+                {"proposals": proposals, "schema_version": SCHEMA_VERSION},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+
+        destination_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        temporary_path = destination_path.with_name(
+            f".{destination_path.name}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            with temporary_path.open("wb") as output:
+                output.write(payload)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary_path, destination_path)
+            directory_fd = os.open(destination_path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
+        return payload
