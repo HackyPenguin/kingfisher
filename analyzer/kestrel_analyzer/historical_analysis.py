@@ -92,8 +92,13 @@ def _hex_digest(value: str, length: int, name: str) -> str:
 class ModelSpec:
     package: str = "pybioclip"
     package_version: str = "2.1.6"
+    open_clip_package: str = "open-clip-torch"
+    open_clip_package_version: str = "3.3.0"
     model_str: str = "hf-hub:imageomics/bioclip-2"
     model_revision: str = "2957b322090f9cb17ae72c71981c7218a28d81e0"
+    model_config_sha256: str = (
+        "1bf947e96e943fe50efd5c3e26c37f843a2fa3c358967719a68c8a6d17ce68c8"
+    )
     weights_sha256: str = "b7b2bf6fbc95799e42630e394cf95803892ab447c1a8ab629dbc82fbeaf7dfef"
     taxonomy_repo_id: str = "imageomics/TreeOfLife-200M"
     taxonomy_repo_revision: str = "5f2dc493b3dc0e544438a04038ab15faa646b749"
@@ -110,6 +115,8 @@ class ModelSpec:
         for name in (
             "package",
             "package_version",
+            "open_clip_package",
+            "open_clip_package_version",
             "model_str",
             "taxonomy_repo_id",
             "device",
@@ -125,6 +132,11 @@ class ModelSpec:
             self,
             "model_revision",
             _hex_digest(self.model_revision, 40, "model_revision"),
+        )
+        object.__setattr__(
+            self,
+            "model_config_sha256",
+            _hex_digest(self.model_config_sha256, 64, "model_config_sha256"),
         )
         object.__setattr__(
             self,
@@ -154,19 +166,22 @@ class ModelSpec:
     def to_dict(self) -> dict[str, Any]:
         return {
             "device": self.device,
+            "expected_model_config_sha256": self.model_config_sha256,
             "expected_model_revision": self.model_revision,
             "expected_taxonomy_embeddings_sha256": self.taxonomy_embeddings_sha256,
             "expected_taxonomy_labels_sha256": self.taxonomy_labels_sha256,
             "expected_taxonomy_repo_revision": self.taxonomy_repo_revision,
             "expected_weights_sha256": self.weights_sha256,
             "model_str": self.model_str,
+            "open_clip_package": self.open_clip_package,
+            "open_clip_package_version": self.open_clip_package_version,
             "package": self.package,
             "package_version": self.package_version,
             "pretrained_str": self.pretrained_str,
             "taxonomy_embeddings_filename": "embeddings/txt_emb_species.npy",
             "taxonomy_labels_filename": "embeddings/txt_emb_species.json",
             "taxonomy_repo_id": self.taxonomy_repo_id,
-            "verification_status": "configured-unverified",
+            "verification_status": "local-artifact-verification-required",
         }
 
 
@@ -394,7 +409,15 @@ class HistoricalAnalysisRunner:
             self.store.record_analysis_failure(asset.asset_version_id, run_id, "invalid_prediction")
             raise error
 
-        self.store.assert_current_analysis_asset(asset)
+        try:
+            self.store.assert_current_analysis_asset(asset)
+        except ValueError as error:
+            self.store.record_analysis_failure(
+                asset.asset_version_id,
+                run_id,
+                "source_version_mismatch",
+            )
+            raise SourceVersionMismatch() from error
         output = self._build_output(
             asset,
             run_id,

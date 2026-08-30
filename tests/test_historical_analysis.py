@@ -1,8 +1,10 @@
+import hashlib
 import math
 from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from unittest.mock import patch
@@ -175,6 +177,14 @@ class HistoricalAnalysisTests(unittest.TestCase):
         self.assertEqual("pybioclip", outcome.output["provenance"]["model"]["package"])
         self.assertEqual("2.1.6", outcome.output["provenance"]["model"]["package_version"])
         self.assertEqual(
+            "open-clip-torch",
+            outcome.output["provenance"]["model"]["open_clip_package"],
+        )
+        self.assertEqual(
+            "3.3.0",
+            outcome.output["provenance"]["model"]["open_clip_package_version"],
+        )
+        self.assertEqual(
             "2957b322090f9cb17ae72c71981c7218a28d81e0",
             outcome.output["provenance"]["model"]["expected_model_revision"],
         )
@@ -183,7 +193,11 @@ class HistoricalAnalysisTests(unittest.TestCase):
             outcome.output["provenance"]["model"]["expected_weights_sha256"],
         )
         self.assertEqual(
-            "configured-unverified",
+            "1bf947e96e943fe50efd5c3e26c37f843a2fa3c358967719a68c8a6d17ce68c8",
+            outcome.output["provenance"]["model"]["expected_model_config_sha256"],
+        )
+        self.assertEqual(
+            "local-artifact-verification-required",
             outcome.output["provenance"]["model"]["verification_status"],
         )
         self.assertNotIn("model_revision", outcome.output["provenance"]["model"])
@@ -319,6 +333,11 @@ class HistoricalAnalysisTests(unittest.TestCase):
             ),
             self.config(
                 model=ModelSpec(
+                    model_config_sha256="a" * 64,
+                )
+            ),
+            self.config(
+                model=ModelSpec(
                     weights_sha256="a" * 64,
                 )
             ),
@@ -327,12 +346,17 @@ class HistoricalAnalysisTests(unittest.TestCase):
                     taxonomy_embeddings_sha256="a" * 64,
                 )
             ),
+            self.config(
+                model=ModelSpec(
+                    open_clip_package_version="3.3.1",
+                )
+            ),
         )
 
         identities = {self.runner(config=base).ensure_analysis_run()}
         identities.update(self.runner(config=item).ensure_analysis_run() for item in variants)
 
-        self.assertEqual(7, len(identities))
+        self.assertEqual(9, len(identities))
 
     def test_unindexed_or_changed_source_never_reaches_the_provider(self):
         provider = FakeProvider()
@@ -366,6 +390,60 @@ class HistoricalAnalysisTests(unittest.TestCase):
         self.assertFalse(outcome.cached)
         self.assertEqual(first_failures, self.store.analysis_failures())
         self.assertEqual(2, len(provider.broad_calls))
+        self.assertEqual(1, self.store.analysis_result_count())
+
+    def test_indexed_version_change_during_inference_is_retryable(self):
+        class ReindexingProvider(FakeProvider):
+            def predict_broad(inner_self, image, labels):
+                self.photo.write_bytes(b"replacement during inference")
+                HistoricalIndexer(
+                    self.store,
+                    self.source_root,
+                    "private-library",
+                ).run()
+                return super().predict_broad(image, labels)
+
+        with self.assertRaisesRegex(Exception, "source_version_mismatch"):
+            self.runner(ReindexingProvider()).run(
+                "private-library",
+                "nested/bird.jpg",
+            )
+
+        self.assertEqual(0, self.store.analysis_result_count())
+        failures = self.store.analysis_failures()
+        self.assertEqual(1, len(failures))
+        self.assertEqual("source_version_mismatch", failures[0]["error_code"])
+        self.assertEqual(1, failures[0]["retryable"])
+
+    def test_concurrent_identical_result_writers_are_idempotent(self):
+        run_id = self.runner().ensure_analysis_run()
+        version_id = self.store.current_version_id("private-library", "nested/bird.jpg")
+        result_id = "result-concurrent-idempotence"
+        output = {"schema_version": 1, "status": "analysed"}
+        barrier = threading.Barrier(2)
+        errors = []
+
+        def write_result():
+            try:
+                with HistoricalStore(self.state_root, self.source_root) as store:
+                    barrier.wait(timeout=5)
+                    store.record_analysis_result(
+                        result_id,
+                        version_id,
+                        run_id,
+                        output,
+                    )
+            except Exception as error:
+                errors.append(error)
+
+        threads = [threading.Thread(target=write_result) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual([], errors)
         self.assertEqual(1, self.store.analysis_result_count())
 
     def test_failure_attempts_are_database_append_only(self):
@@ -522,6 +600,8 @@ class HistoricalAnalysisTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ModelSpec(model_revision="not-a-revision")
         with self.assertRaises(ValueError):
+            ModelSpec(model_config_sha256="not-a-digest")
+        with self.assertRaises(ValueError):
             ModelSpec(weights_sha256="not-a-digest")
         with self.assertRaises(ValueError):
             ModelSpec(taxonomy_repo_revision="not-a-revision")
@@ -529,6 +609,22 @@ class HistoricalAnalysisTests(unittest.TestCase):
             ModelSpec(taxonomy_embeddings_sha256="not-a-digest")
         with self.assertRaises(ValueError):
             ModelSpec(taxonomy_labels_sha256="not-a-digest")
+
+    def test_runtime_dependency_pins_match_model_provenance(self):
+        _, _, ModelSpec, _ = self.imports()
+        requirements = (
+            Path(__file__).resolve().parents[1] / "requirements.txt"
+        ).read_text(encoding="utf-8").splitlines()
+        model = ModelSpec()
+
+        self.assertIn(
+            f"{model.package}=={model.package_version}",
+            requirements,
+        )
+        self.assertIn(
+            f"{model.open_clip_package}=={model.open_clip_package_version}",
+            requirements,
+        )
 
     def test_runner_does_not_change_sources_sidecars_or_review_proposals(self):
         before = self.source_snapshot()
@@ -544,10 +640,50 @@ class HistoricalAnalysisTests(unittest.TestCase):
 
 
 class PyBioClipAdapterTests(unittest.TestCase):
+    def local_assets(self):
+        from analyzer.kestrel_analyzer.historical_analysis import ModelSpec
+        from analyzer.kestrel_analyzer.pybioclip_adapter import LocalBioClipAssets
+
+        temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_directory.cleanup)
+        root = Path(temporary_directory.name)
+        model_directory = root / "model"
+        taxonomy_directory = root / "taxonomy" / "embeddings"
+        model_directory.mkdir()
+        taxonomy_directory.mkdir(parents=True)
+        payloads = {
+            model_directory / "open_clip_config.json": b"pinned local model config",
+            model_directory / "open_clip_model.safetensors": b"pinned local model weights",
+            taxonomy_directory / "txt_emb_species.npy": b"pinned taxonomy embeddings",
+            taxonomy_directory / "txt_emb_species.json": b"pinned taxonomy labels",
+        }
+        for path, payload in payloads.items():
+            path.write_bytes(payload)
+        digest = lambda path: hashlib.sha256(payloads[path]).hexdigest()
+        model = ModelSpec(
+            model_config_sha256=digest(model_directory / "open_clip_config.json"),
+            weights_sha256=digest(model_directory / "open_clip_model.safetensors"),
+            taxonomy_embeddings_sha256=digest(
+                taxonomy_directory / "txt_emb_species.npy"
+            ),
+            taxonomy_labels_sha256=digest(
+                taxonomy_directory / "txt_emb_species.json"
+            ),
+        )
+        assets = LocalBioClipAssets(
+            model_directory=model_directory,
+            model_config=model_directory / "open_clip_config.json",
+            model_weights=model_directory / "open_clip_model.safetensors",
+            taxonomy_embeddings=taxonomy_directory / "txt_emb_species.npy",
+            taxonomy_labels=taxonomy_directory / "txt_emb_species.json",
+        )
+        return model, lambda configured_model: assets
+
     def test_adapter_is_lazy_and_uses_pybioclip_216_classifier_apis(self):
         from analyzer.kestrel_analyzer.historical_analysis import ModelSpec
         from analyzer.kestrel_analyzer.pybioclip_adapter import PyBioClipProvider
 
+        model, local_assets_resolver = self.local_assets()
         calls = []
         instances = []
         network_resolver_calls = []
@@ -569,6 +705,13 @@ class PyBioClipAdapterTests(unittest.TestCase):
         class TreeOfLifeClassifier:
             def __init__(self, **kwargs):
                 instances.append(("taxonomy", kwargs, self))
+                calls.append(
+                    (
+                        "taxonomy-artifacts",
+                        self.get_cached_datafile("embeddings/txt_emb_species.npy"),
+                        self.get_cached_datafile("embeddings/txt_emb_species.json"),
+                    )
+                )
 
             def create_taxa_filter(self, rank, values):
                 calls.append(("create-filter", rank, tuple(values)))
@@ -603,13 +746,18 @@ class PyBioClipAdapterTests(unittest.TestCase):
         hugging_face_module.dataset_info = forbidden_network_resolver
         hugging_face_module.get_hf_file_metadata = forbidden_network_resolver
         hugging_face_module.hf_hub_url = forbidden_network_resolver
+        hugging_face_module.hf_hub_download = forbidden_network_resolver
 
         self.assertNotIn("bioclip", sys.modules)
         with patch.dict(sys.modules, {"huggingface_hub": hugging_face_module}):
             provider = PyBioClipProvider(
-                ModelSpec(),
+                model,
+                local_assets_resolver=local_assets_resolver,
                 module_loader=loader,
-                package_version_resolver=lambda package: "2.1.6",
+                package_version_resolver=lambda package: {
+                    "pybioclip": "2.1.6",
+                    "open-clip-torch": "3.3.0",
+                }[package],
             )
             self.assertEqual([], calls)
             self.assertEqual([], instances)
@@ -640,12 +788,23 @@ class PyBioClipAdapterTests(unittest.TestCase):
             ),
             instances[0][1],
         )
-        self.assertEqual("hf-hub:imageomics/bioclip-2", instances[0][2]["model_str"])
+        self.assertEqual(
+            f"local-dir:{local_assets_resolver(model).model_directory}",
+            instances[0][2]["model_str"],
+        )
         self.assertEqual("cpu", instances[0][2]["device"])
         self.assertIn(("broad-predict", ["image"], {"k": 8}), calls)
         self.assertIn(("create-filter", "species-rank", ("Alcedo atthis",)), calls)
         self.assertIn(("apply-filter", "filter"), calls)
         self.assertIn(("taxonomy-predict", ["image"], "species-rank", {"k": 3}), calls)
+        self.assertIn(
+            (
+                "taxonomy-artifacts",
+                str(local_assets_resolver(model).taxonomy_embeddings),
+                str(local_assets_resolver(model).taxonomy_labels),
+            ),
+            calls,
+        )
 
         provider.predict_broad("second", ("landscape", "architecture", "human", "animal"))
         provider.predict_taxonomy("second", ("Alcedo atthis",), 1)
@@ -659,11 +818,10 @@ class PyBioClipAdapterTests(unittest.TestCase):
         self.assertNotIn("bioclip", sys.modules)
 
     def test_adapter_rejects_package_drift_and_invalid_pairwise_scores(self):
-        from analyzer.kestrel_analyzer.historical_analysis import ModelSpec
         from analyzer.kestrel_analyzer.pybioclip_adapter import PyBioClipProvider
 
+        model, local_assets_resolver = self.local_assets()
         labels = ("landscape", "architecture", "human", "animal")
-        model = ModelSpec()
         loader_calls = []
 
         class Classifier:
@@ -684,16 +842,30 @@ class PyBioClipAdapterTests(unittest.TestCase):
 
         def provider(**overrides):
             values = {
+                "local_assets_resolver": local_assets_resolver,
                 "module_loader": loader,
-                "package_version_resolver": lambda package: model.package_version,
+                "package_version_resolver": lambda package: {
+                    model.package: model.package_version,
+                    model.open_clip_package: model.open_clip_package_version,
+                }[package],
             }
             values.update(overrides)
             return PyBioClipProvider(model, **values)
 
         with self.assertRaisesRegex(RuntimeError, "installed pybioclip version"):
-            provider(package_version_resolver=lambda package: "2.1.5").predict_broad(
-                "image", labels
-            )
+            provider(
+                package_version_resolver=lambda package: {
+                    "pybioclip": "2.1.5",
+                    "open-clip-torch": "3.3.0",
+                }[package]
+            ).predict_broad("image", labels)
+        with self.assertRaisesRegex(RuntimeError, "installed open-clip-torch version"):
+            provider(
+                package_version_resolver=lambda package: {
+                    "pybioclip": "2.1.6",
+                    "open-clip-torch": "3.2.0",
+                }[package]
+            ).predict_broad("image", labels)
         self.assertEqual([], loader_calls)
 
         with self.assertRaisesRegex(ValueError, "positive mass"):
@@ -704,10 +876,14 @@ class PyBioClipAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incomplete"):
             provider().predict_broad("image", labels)
 
+        local_assets_resolver(model).model_weights.write_bytes(b"tampered")
+        with self.assertRaisesRegex(RuntimeError, "local BioCLIP artifact"):
+            provider().predict_broad("image", labels)
+
     def test_adapter_normalizes_each_prompt_pair_independently(self):
-        from analyzer.kestrel_analyzer.historical_analysis import ModelSpec
         from analyzer.kestrel_analyzer.pybioclip_adapter import PyBioClipProvider
 
+        model, local_assets_resolver = self.local_assets()
         labels = ("landscape", "architecture", "human", "animal")
         predictions = (
             {"classification": "landscape", "score": 0.20},
@@ -728,11 +904,15 @@ class PyBioClipAdapterTests(unittest.TestCase):
                 return predictions
 
         provider = PyBioClipProvider(
-            ModelSpec(),
+            model,
+            local_assets_resolver=local_assets_resolver,
             module_loader=lambda name: types.SimpleNamespace(
                 CustomLabelsClassifier=Classifier
             ),
-            package_version_resolver=lambda package: "2.1.6",
+            package_version_resolver=lambda package: {
+                "pybioclip": "2.1.6",
+                "open-clip-torch": "3.3.0",
+            }[package],
         )
 
         result = provider.predict_broad("image", labels)

@@ -103,15 +103,21 @@ those verified in-memory bytes. The only writes are database-guarded immutable
 `analysis_runs` and `analysis_results`, plus append-only retry diagnostics that
 retain a closed error code rather than exception text.
 
-The lazy adapter is pinned to `pybioclip==2.1.6` and fails closed unless the
-installed package matches that version. It performs no remote Hugging Face
-metadata lookup, so startup and inference can use an already-populated local
-cache while offline. The configured expected model revision, model weights
-SHA-256, TreeOfLife-200M dataset revision, and taxonomy artifact SHA-256 values
-remain part of the run identity and result provenance. This slice does not
-locate and hash the artifacts actually opened by `pybioclip`, so provenance
-labels all those expectations `configured-unverified` instead of claiming
-local artifact verification. Broad inference uses one
+The lazy adapter is pinned to `pybioclip==2.1.6` and
+`open-clip-torch==3.3.0`, the latter providing the offline `local-dir:` loader,
+and fails closed unless both installed packages match those versions. Both
+versions participate in analysis identity and result provenance. Runtime model
+paths come only from the
+`KINGFISHER_BIOCLIP_MODEL_DIR` and `KINGFISHER_BIOCLIP_TAXONOMY_DIR`
+configuration. The adapter verifies the local OpenCLIP config, safetensors,
+TreeOfLife embeddings, and TreeOfLife labels against their configured SHA-256
+values before and after classifier construction. It gives OpenCLIP a
+`local-dir:` model and overrides pybioclip's taxonomy datafile lookup with
+those verified local paths, so normal inference has no Hub lookup or download
+path. Expected revisions and artifact digests remain in run identity and
+result provenance; the result states that local verification is required
+rather than treating a remote repository identifier as proof. Broad inference
+uses one
 `CustomLabelsClassifier` with a positive/`scene without ...` prompt pair per
 closed category. Each positive score is normalized only against its paired
 negative score, cancelling the classifier's shared softmax denominator and
@@ -126,8 +132,9 @@ all participate in the analysis-run identity.
 The closed result document labels both broad and taxonomic predictions as
 suggestions rather than ground truth. It has no proposal, rating, pick/reject,
 delete, move, sidecar, or XMP operation. A successful version/run pair is
-idempotent; failures leave it stale for retry and never mutate earlier failure
-attempts.
+transactionally idempotent across concurrent writers. Source-version changes
+discovered after inference are recorded as retryable failures; failures leave
+the asset stale and never mutate earlier failure attempts.
 
 ## Testing strategy
 

@@ -783,15 +783,6 @@ class HistoricalStore:
     ) -> None:
         result_id = _require_identifier(result_id, "result_id")
         canonical_output = _canonical_json(output)
-        existing = self.connection.execute(
-            """
-            SELECT result_id, asset_version_id, analysis_run_id,
-                   output_schema_version, canonical_output_json
-            FROM analysis_results
-            WHERE result_id = ? OR (asset_version_id = ? AND analysis_run_id = ?)
-            """,
-            (result_id, asset_version_id, analysis_run_id),
-        ).fetchone()
         expected = (
             result_id,
             asset_version_id,
@@ -799,12 +790,21 @@ class HistoricalStore:
             output_schema_version,
             canonical_output,
         )
-        if existing is not None:
-            actual = tuple(existing[key] for key in existing.keys())
-            if actual != expected:
-                raise ValueError("analysis results are immutable")
-            return
         with self.transaction() as connection:
+            existing = connection.execute(
+                """
+                SELECT result_id, asset_version_id, analysis_run_id,
+                       output_schema_version, canonical_output_json
+                FROM analysis_results
+                WHERE result_id = ? OR (asset_version_id = ? AND analysis_run_id = ?)
+                """,
+                (result_id, asset_version_id, analysis_run_id),
+            ).fetchone()
+            if existing is not None:
+                actual = tuple(existing[key] for key in existing.keys())
+                if actual != expected:
+                    raise ValueError("analysis results are immutable")
+                return
             connection.execute(
                 """
                 INSERT INTO analysis_results(

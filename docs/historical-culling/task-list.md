@@ -20,7 +20,7 @@
 
 ## Slice 3: analysis integration
 
-- [ ] Import the existing eye-focus prototype and its evaluator deliberately.
+- [x] Import the existing eye-focus prototype and its evaluator deliberately.
 - [ ] Benchmark subject, head, and eye focus against labelled historical data.
 - [ ] Add burst-relative ranking and uncertainty calibration.
 - [x] Add analysis-only broad category and gated BioCLIP taxonomy suggestions.
