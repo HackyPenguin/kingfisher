@@ -12,11 +12,11 @@
 
 ## Slice 2: historical index and result store
 
-- [ ] Add recursive mixed-format discovery.
-- [ ] Add stable source fingerprints and version-aware staleness.
-- [ ] Add transactional SQLite result and audit stores.
-- [ ] Add checkpoint/resume and idempotency integration tests.
-- [ ] Add dry-run manifest export.
+- [x] Add recursive mixed-format discovery.
+- [x] Add stable source fingerprints and version-aware staleness.
+- [x] Add transactional SQLite result and audit stores.
+- [x] Add checkpoint/resume and idempotency integration tests.
+- [x] Add dry-run manifest export.
 
 ## Slice 3: analysis integration
 

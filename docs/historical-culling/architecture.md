@@ -55,9 +55,15 @@ sidecars are never an output surface for the worker.
   is not protection.
 - Missing or low-confidence subject/focus evidence: propose uncertainty only
   when a wildlife subject was detected.
-- Interrupted scan: resume from the last committed item.
+- Interrupted scan: keep every committed asset/version, never mark unseen assets
+  missing, and restart the same scan as an idempotent full reconciliation. The
+  checkpoint is diagnostic rather than a lexicographic skip cursor, because a
+  new path could have appeared before that cursor.
 - Changed file/model/policy: create a new result and supersede the previous
-  proposal without mutating its audit record. The application transaction
-  revalidates the old receipt/revision, removes only its exact AI metadata,
-  applies the new state, and records the new receipt atomically.
+  proposal without mutating its audit record. The plugin prepares an operation
+  in SQLite, revalidates the old receipt/revision, and applies the Lightroom
+  catalogue change in one catalogue transaction. It then records the exact
+  post-apply revision. A crash between those stores leaves a prepared operation
+  for proof-based reconciliation or manual recovery; it never infers ownership
+  and never clears metadata automatically.
 - Plugin unavailable: proposals remain pending; no sidecar fallback occurs.

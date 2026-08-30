@@ -59,16 +59,39 @@ deletion, movement, rejection, pick flag, or rating.
 
 ## Next storage slice
 
-Use SQLite with foreign keys and WAL mode in the dedicated state root:
+Slice 2 uses SQLite with foreign keys, WAL mode, full synchronous durability,
+and a busy timeout in the dedicated state root. The state root must be outside
+the photo root and the worker does not write to the photo root:
 
-- `assets`: current canonical identity and fingerprint;
+- `libraries`: persistent configured identities independent of mount paths;
+- `scan_runs`, `scan_observations`, and `scan_errors`: resumable discovery and
+  diagnostics. Only a completed pass may mark an unseen asset missing;
+- `assets`: root-relative path lookup plus current stat-signature fast gate;
+- `asset_versions`: immutable full SHA-256 fingerprints. First observations and
+  changed stat signatures are hashed after a before/after stability check;
 - `analysis_runs`: immutable analyzer/model/policy configuration;
 - `analysis_results`: model outputs for one asset/run;
-- `review_proposals`: current allowed decision and reasons;
-- `application_ledger`: proposed/applied/superseded state and plugin receipt.
+- `review_proposals`: immutable allowed decisions with at most one current
+  proposal per asset;
+- `application_operations`: prepared/applied/superseded/manual-recovery state
+  and exact plugin receipt evidence.
 
 Writes occur in transactions. The manifest exporter sorts by library ID,
-relative path, and result ID for deterministic output.
+relative path, and result ID for deterministic output, writes through a
+temporary file with `fsync`, and atomically replaces only a destination beneath
+the state root. The closed manifest contains no delete, move, reject, rating, or
+pick operation.
+
+Normal reconciliation stats every eligible source and reuses a prior digest
+only when size and nanosecond modification time match. A bounded full-hash audit
+can catch rare timestamp-preserving replacements. Symlinks are never followed;
+legacy per-folder `.kingfisher` state and unsupported sidecars are excluded.
+
+SQLite and Lightroom cannot share a transaction manager. Later plugin work must
+therefore use a recoverable prepared-operation protocol: prepare in SQLite,
+apply one Lightroom catalogue transaction, then finalize the ledger with the
+post-apply catalogue revision and exact metadata. An unresolved prepared
+operation may only be finalized from exact proof or moved to manual recovery.
 
 ## Testing strategy
 
@@ -76,5 +99,9 @@ The policy is covered with standard-library unit tests, including edited
 protection, manual metadata protection, review decisions, label preservation,
 input validation, deterministic serialization, Focus/Uncertain supersession,
 receipt-owned clearing, and an assertion that forbidden source mutations cannot
-appear. ML accuracy, scanner integration, SQLite resume, and Lightroom
-application are separate later test layers.
+appear. ML accuracy and Lightroom application are separate later test layers.
+Scanner and SQLite integration tests now cover deterministic recursive
+discovery, duplicate basenames, symlink exclusion, full source hashing,
+idempotent scans, content changes, timestamp-preserving replacement audits,
+interrupted restart, version-aware analysis staleness, immutable results, and
+stable dry-run export.
