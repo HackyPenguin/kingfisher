@@ -5,11 +5,13 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import sqlite3
+import stat
 from typing import Any, Iterator, Mapping
 import uuid
 
@@ -17,7 +19,7 @@ from .historical_index import DiscoveredAsset, hash_file_stably
 from .review_policy import Decision, ReviewProposal
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MANIFEST_SCHEMA_VERSION = 1
 _VERSION_NAMESPACE = uuid.UUID("40f11d91-8f27-4058-ae61-e519dd5e85a1")
 _ACTIONABLE_DECISIONS = frozenset(
@@ -35,6 +37,7 @@ _ANALYSIS_FAILURE_CODES = frozenset(
         "source_version_mismatch",
     }
 )
+_ANALYSIS_SKIP_CODES = frozenset({"source_too_large"})
 
 
 @dataclass(frozen=True)
@@ -81,30 +84,125 @@ def _require_identifier(value: str, name: str) -> str:
     return normalised
 
 
+def _lexists(path: Path) -> bool:
+    return os.path.lexists(path)
+
+
+def _validate_private_directory(path: Path) -> None:
+    details = os.lstat(path)
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+        raise ValueError("state_root must be a real directory")
+    if hasattr(os, "geteuid") and details.st_uid != os.geteuid():
+        raise ValueError("state_root must be owned by the runtime user")
+
+
+def _validate_private_file(
+    path: Path,
+    *,
+    expected_device: int | None = None,
+    expected_inode: int | None = None,
+) -> os.stat_result:
+    details = os.lstat(path)
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+        raise ValueError("SQLite state files must be regular files")
+    if details.st_nlink != 1:
+        raise ValueError("SQLite state files must not have hard links")
+    if hasattr(os, "geteuid") and details.st_uid != os.geteuid():
+        raise ValueError("SQLite state files must be owned by the runtime user")
+    if expected_device is not None and details.st_dev != expected_device:
+        raise ValueError("SQLite database identity changed during open")
+    if expected_inode is not None and details.st_ino != expected_inode:
+        raise ValueError("SQLite database identity changed during open")
+    return details
+
+
+def _securely_open_database(path: Path) -> tuple[int, os.stat_result]:
+    flags = os.O_RDWR | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    if _lexists(path):
+        _validate_private_file(path)
+    try:
+        descriptor = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise ValueError("SQLite database must not be a symlink") from error
+            raise
+    try:
+        details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+            raise ValueError("SQLite database must be a single-link regular file")
+        _validate_private_file(
+            path,
+            expected_device=details.st_dev,
+            expected_inode=details.st_ino,
+        )
+        return descriptor, details
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
 class HistoricalStore:
     """Single-writer durable state, always outside the source photo root."""
 
     def __init__(self, state_root: Path | str, source_root: Path | str) -> None:
         self.source_root = Path(source_root).resolve(strict=True)
-        state_path = Path(state_root).expanduser()
-        self.state_root = state_path.resolve(strict=False)
+        state_path = Path(state_root).expanduser().absolute()
+        if _lexists(state_path) and state_path.is_symlink():
+            raise ValueError("state_root must not be a symlink")
+        resolved_candidate = state_path.resolve(strict=False)
+        if _is_within(resolved_candidate, self.source_root):
+            raise ValueError("state_root must be outside source_root")
+        state_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.state_root = state_path.resolve(strict=True)
         if _is_within(self.state_root, self.source_root):
             raise ValueError("state_root must be outside source_root")
-        self.state_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _validate_private_directory(self.state_root)
         os.chmod(self.state_root, 0o700)
         self.database_path = self.state_root / "historical.sqlite3"
-        self._connection = sqlite3.connect(
-            self.database_path,
-            isolation_level=None,
-            timeout=5.0,
+        self._connection: sqlite3.Connection | None = None
+        self._database_guard_fd: int | None = None
+        companions = tuple(
+            Path(f"{self.database_path}{suffix}")
+            for suffix in ("-journal", "-shm", "-wal")
         )
-        self._connection.row_factory = sqlite3.Row
-        self._connection.execute("PRAGMA foreign_keys=ON")
-        self._connection.execute("PRAGMA journal_mode=WAL")
-        self._connection.execute("PRAGMA synchronous=FULL")
-        self._connection.execute("PRAGMA busy_timeout=5000")
-        os.chmod(self.database_path, 0o600)
-        self._migrate()
+        for companion in companions:
+            if _lexists(companion):
+                _validate_private_file(companion)
+        descriptor, opened = _securely_open_database(self.database_path)
+        self._database_guard_fd = descriptor
+        try:
+            self._connection = sqlite3.connect(
+                self.database_path,
+                isolation_level=None,
+                timeout=5.0,
+            )
+            _validate_private_file(
+                self.database_path,
+                expected_device=opened.st_dev,
+                expected_inode=opened.st_ino,
+            )
+            self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA foreign_keys=ON")
+            self._connection.execute("PRAGMA journal_mode=WAL")
+            self._connection.execute("PRAGMA synchronous=FULL")
+            self._connection.execute("PRAGMA busy_timeout=5000")
+            os.chmod(self.database_path, 0o600)
+            _validate_private_file(
+                self.database_path,
+                expected_device=opened.st_dev,
+                expected_inode=opened.st_ino,
+            )
+            for companion in companions:
+                if _lexists(companion):
+                    _validate_private_file(companion)
+                    os.chmod(companion, 0o600)
+            self._migrate()
+        except Exception:
+            self.close()
+            raise
 
     def __enter__(self) -> "HistoricalStore":
         return self
@@ -116,6 +214,9 @@ class HistoricalStore:
         if self._connection is not None:
             self._connection.close()
             self._connection = None
+        if self._database_guard_fd is not None:
+            os.close(self._database_guard_fd)
+            self._database_guard_fd = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -242,6 +343,27 @@ class HistoricalStore:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS analysis_terminal_skips (
+                skip_id TEXT PRIMARY KEY,
+                asset_version_id TEXT NOT NULL REFERENCES asset_versions(asset_version_id),
+                analysis_run_id TEXT NOT NULL REFERENCES analysis_runs(analysis_run_id),
+                reason_code TEXT NOT NULL CHECK (reason_code IN ('source_too_large')),
+                created_at TEXT NOT NULL,
+                UNIQUE(asset_version_id, analysis_run_id)
+            );
+
+            CREATE TRIGGER IF NOT EXISTS analysis_terminal_skips_no_update
+            BEFORE UPDATE ON analysis_terminal_skips
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis terminal skips are immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS analysis_terminal_skips_no_delete
+            BEFORE DELETE ON analysis_terminal_skips
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis terminal skips are immutable');
+            END;
+
             CREATE TRIGGER IF NOT EXISTS analysis_attempt_failures_no_update
             BEFORE UPDATE ON analysis_attempt_failures
             BEGIN
@@ -312,10 +434,11 @@ class HistoricalStore:
             );
             """
         )
-        self.connection.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-            (SCHEMA_VERSION, _utc_now()),
-        )
+        for version in range(2, SCHEMA_VERSION + 1):
+            self.connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (version, _utc_now()),
+            )
 
     def pragma_value(self, name: str) -> Any:
         if name not in {"journal_mode", "foreign_keys", "synchronous", "busy_timeout"}:
@@ -370,19 +493,48 @@ class HistoricalStore:
                 raise ValueError("scan belongs to another library")
             if row["status"] != "running":
                 raise ValueError("only an interrupted running scan can be resumed")
-            connection.execute("DELETE FROM scan_observations WHERE scan_id = ?", (scan_id,))
-            connection.execute("DELETE FROM scan_errors WHERE scan_id = ?", (scan_id,))
-            connection.execute(
-                "UPDATE scan_runs SET last_checkpoint_path = NULL WHERE scan_id = ?",
-                (scan_id,),
-            )
 
     def record_scan_error(self, scan_id: str, relative_path: str, code: str) -> None:
         with self.transaction() as connection:
             connection.execute(
-                "INSERT INTO scan_errors(scan_id, relative_path, code, created_at) VALUES (?, ?, ?, ?)",
-                (scan_id, relative_path, code, _utc_now()),
+                """
+                INSERT INTO scan_errors(scan_id, relative_path, code, created_at)
+                SELECT ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM scan_errors
+                    WHERE scan_id = ? AND relative_path = ? AND code = ?
+                )
+                """,
+                (
+                    scan_id,
+                    relative_path,
+                    code,
+                    _utc_now(),
+                    scan_id,
+                    relative_path,
+                    code,
+                ),
             )
+
+    def scan_observation_matches(
+        self,
+        scan_id: str,
+        asset: DiscoveredAsset,
+    ) -> bool:
+        row = self.connection.execute(
+            """
+            SELECT asset_version_id, byte_size, mtime_ns
+            FROM scan_observations
+            WHERE scan_id = ? AND asset_id = ?
+            """,
+            (scan_id, asset.asset_id),
+        ).fetchone()
+        return bool(
+            row is not None
+            and row["asset_version_id"] is not None
+            and row["byte_size"] == asset.byte_size
+            and row["mtime_ns"] == asset.mtime_ns
+        )
 
     def _upsert_asset(self, connection: sqlite3.Connection, scan_id: str, asset: DiscoveredAsset) -> None:
         now = _utc_now()
@@ -427,6 +579,7 @@ class HistoricalStore:
         source_path: Path,
         *,
         force_hash: bool = False,
+        supersede_proposals: bool = True,
     ) -> str:
         resolved_source = Path(source_path).resolve(strict=True)
         expected_source = self.source_root / asset.relative_path
@@ -486,7 +639,11 @@ class HistoricalStore:
                         _utc_now(),
                     ),
                 )
-            if prior_version_id is not None and prior_version_id != version_id:
+            if (
+                supersede_proposals
+                and prior_version_id is not None
+                and prior_version_id != version_id
+            ):
                 connection.execute(
                     """
                     UPDATE review_proposals SET lifecycle = 'superseded'
@@ -516,16 +673,23 @@ class HistoricalStore:
             )
         return version_id
 
-    def mark_seen_without_version(self, scan_id: str, asset: DiscoveredAsset) -> None:
+    def mark_seen_without_version(
+        self,
+        scan_id: str,
+        asset: DiscoveredAsset,
+        *,
+        supersede_proposals: bool = True,
+    ) -> None:
         with self.transaction() as connection:
             self._upsert_asset(connection, scan_id, asset)
-            connection.execute(
-                """
-                UPDATE review_proposals SET lifecycle = 'superseded'
-                WHERE asset_id = ? AND lifecycle = 'proposed'
-                """,
-                (asset.asset_id,),
-            )
+            if supersede_proposals:
+                connection.execute(
+                    """
+                    UPDATE review_proposals SET lifecycle = 'superseded'
+                    WHERE asset_id = ? AND lifecycle = 'proposed'
+                    """,
+                    (asset.asset_id,),
+                )
             connection.execute(
                 """
                 UPDATE assets SET current_asset_version_id = NULL,
@@ -553,7 +717,12 @@ class HistoricalStore:
                 (asset.relative_path, scan_id),
             )
 
-    def complete_scan(self, scan_id: str) -> None:
+    def complete_scan(
+        self,
+        scan_id: str,
+        *,
+        current_asset_ids: tuple[str, ...] | None = None,
+    ) -> None:
         now = _utc_now()
         with self.transaction() as connection:
             row = connection.execute(
@@ -562,6 +731,23 @@ class HistoricalStore:
             ).fetchone()
             if row is None or row["status"] != "running":
                 raise ValueError("scan is not running")
+            if current_asset_ids is not None:
+                connection.execute(
+                    "CREATE TEMP TABLE current_scan_assets(asset_id TEXT PRIMARY KEY)"
+                )
+                connection.executemany(
+                    "INSERT INTO current_scan_assets(asset_id) VALUES (?)",
+                    ((asset_id,) for asset_id in current_asset_ids),
+                )
+                connection.execute(
+                    """
+                    DELETE FROM scan_observations
+                    WHERE scan_id = ?
+                      AND asset_id NOT IN (SELECT asset_id FROM current_scan_assets)
+                    """,
+                    (scan_id,),
+                )
+                connection.execute("DROP TABLE current_scan_assets")
             connection.execute(
                 """
                 UPDATE assets SET state = 'missing'
@@ -753,9 +939,30 @@ class HistoricalStore:
             )
         return run_id
 
-    def stale_asset_paths(self, analysis_run_id: str) -> tuple[str, ...]:
+    def stale_asset_paths(
+        self,
+        analysis_run_id: str,
+        *,
+        library_id: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str, ...]:
+        if limit is not None and (not isinstance(limit, int) or limit < 0):
+            raise ValueError("limit must be a non-negative integer or None")
+        parameters: tuple[str | int, ...] = (analysis_run_id, analysis_run_id)
+        library_filter = ""
+        if library_id is not None:
+            library_filter = "AND a.library_id = ?"
+            parameters = (
+                analysis_run_id,
+                analysis_run_id,
+                _require_identifier(library_id, "library_id"),
+            )
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT ?"
+            parameters = (*parameters, limit)
         rows = self.connection.execute(
-            """
+            f"""
             SELECT a.canonical_relative_path
             FROM assets AS a
             WHERE a.state = 'active'
@@ -765,12 +972,57 @@ class HistoricalStore:
                   WHERE r.asset_version_id = a.current_asset_version_id
                     AND r.analysis_run_id = ?
                     AND r.status = 'analysed'
+            )
+              AND NOT EXISTS (
+                  SELECT 1 FROM analysis_terminal_skips AS s
+                  WHERE s.asset_version_id = a.current_asset_version_id
+                    AND s.analysis_run_id = ?
               )
+              {library_filter}
             ORDER BY a.canonical_relative_path COLLATE NOCASE, a.canonical_relative_path
+            {limit_clause}
             """,
-            (analysis_run_id,),
+            parameters,
         ).fetchall()
         return tuple(str(row[0]) for row in rows)
+
+    def stale_asset_count(
+        self,
+        analysis_run_id: str,
+        *,
+        library_id: str | None = None,
+    ) -> int:
+        parameters: tuple[str, ...] = (analysis_run_id, analysis_run_id)
+        library_filter = ""
+        if library_id is not None:
+            library_filter = "AND a.library_id = ?"
+            parameters = (
+                analysis_run_id,
+                analysis_run_id,
+                _require_identifier(library_id, "library_id"),
+            )
+        row = self.connection.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM assets AS a
+            WHERE a.state = 'active'
+              AND a.current_asset_version_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM analysis_results AS r
+                  WHERE r.asset_version_id = a.current_asset_version_id
+                    AND r.analysis_run_id = ?
+                    AND r.status = 'analysed'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM analysis_terminal_skips AS s
+                  WHERE s.asset_version_id = a.current_asset_version_id
+                    AND s.analysis_run_id = ?
+              )
+              {library_filter}
+            """,
+            parameters,
+        ).fetchone()
+        return int(row[0])
 
     def record_analysis_result(
         self,
@@ -861,6 +1113,63 @@ class HistoricalStore:
                 ),
             )
         return attempt_id
+
+    def record_analysis_skip(
+        self,
+        asset_version_id: str,
+        analysis_run_id: str,
+        reason_code: str,
+    ) -> str:
+        """Persist one immutable terminal exclusion for a version/run pair."""
+
+        if reason_code not in _ANALYSIS_SKIP_CODES:
+            raise ValueError("unsupported analysis skip code")
+        skip_id = str(
+            uuid.uuid5(
+                _VERSION_NAMESPACE,
+                f"skip\0{asset_version_id}\0{analysis_run_id}\0{reason_code}",
+            )
+        )
+        with self.transaction() as connection:
+            existing = connection.execute(
+                """
+                SELECT skip_id, reason_code
+                FROM analysis_terminal_skips
+                WHERE asset_version_id = ? AND analysis_run_id = ?
+                """,
+                (asset_version_id, analysis_run_id),
+            ).fetchone()
+            if existing is not None:
+                if existing["skip_id"] != skip_id or existing["reason_code"] != reason_code:
+                    raise ValueError("analysis terminal skips are immutable")
+                return skip_id
+            connection.execute(
+                """
+                INSERT INTO analysis_terminal_skips(
+                    skip_id, asset_version_id, analysis_run_id,
+                    reason_code, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    skip_id,
+                    asset_version_id,
+                    analysis_run_id,
+                    reason_code,
+                    _utc_now(),
+                ),
+            )
+        return skip_id
+
+    def analysis_skips(self) -> tuple[Mapping[str, Any], ...]:
+        rows = self.connection.execute(
+            """
+            SELECT skip_id, asset_version_id, analysis_run_id,
+                   reason_code, created_at
+            FROM analysis_terminal_skips
+            ORDER BY created_at, skip_id
+            """
+        ).fetchall()
+        return tuple(dict(row) for row in rows)
 
     def analysis_failures(self) -> tuple[Mapping[str, Any], ...]:
         rows = self.connection.execute(

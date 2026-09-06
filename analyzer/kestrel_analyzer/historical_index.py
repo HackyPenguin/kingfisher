@@ -133,7 +133,12 @@ def _asset_id(library_id: str, relative_path: str) -> str:
     return str(uuid.uuid5(_ASSET_NAMESPACE, f"{library_id}\0{relative_path}"))
 
 
-def discover_library(root: Path | str, library_id: str) -> DiscoveryReport:
+def discover_library(
+    root: Path | str,
+    library_id: str,
+    *,
+    should_stop: Callable[[], bool] | None = None,
+) -> DiscoveryReport:
     """Discover supported images recursively without following symlinks.
 
     Paths and identifiers are root-relative so a remount does not invalidate the
@@ -150,6 +155,8 @@ def discover_library(root: Path | str, library_id: str) -> DiscoveryReport:
     diagnostics: list[DiscoveryDiagnostic] = []
 
     def walk(directory: Path) -> None:
+        if should_stop is not None and should_stop():
+            return
         try:
             entries = sorted(
                 os.scandir(directory),
@@ -161,6 +168,8 @@ def discover_library(root: Path | str, library_id: str) -> DiscoveryReport:
             return
 
         for entry in entries:
+            if should_stop is not None and should_stop():
+                return
             path = Path(entry.path)
             relative_path = path.relative_to(root_path).as_posix()
             try:
@@ -261,6 +270,7 @@ class HistoricalIndexer:
         library_id: str,
         *,
         root_config_digest: str = "default",
+        mutate_review_proposals: bool = True,
     ) -> None:
         self.store = store
         self.source_root = Path(source_root).resolve(strict=True)
@@ -268,6 +278,9 @@ class HistoricalIndexer:
             raise ValueError("indexer source_root must match the store source_root")
         self.library_id = _normalise_identifier(library_id, "library_id")
         self.root_config_digest = _normalise_identifier(root_config_digest, "root_config_digest")
+        if not isinstance(mutate_review_proposals, bool):
+            raise TypeError("mutate_review_proposals must be a bool")
+        self.mutate_review_proposals = mutate_review_proposals
 
     def run(
         self,
@@ -275,6 +288,7 @@ class HistoricalIndexer:
         scan_id: str | None = None,
         max_items: int | None = None,
         full_hash_audit: bool = False,
+        should_stop: Callable[[], bool] | None = None,
     ) -> ScanSummary:
         if max_items is not None and max_items < 0:
             raise ValueError("max_items must be non-negative or None")
@@ -287,7 +301,14 @@ class HistoricalIndexer:
         else:
             self.store.restart_scan(scan_id, self.library_id)
 
-        report = discover_library(self.source_root, self.library_id)
+        if max_items == 0 or (should_stop is not None and should_stop()):
+            return ScanSummary(scan_id, "running", 0, 0)
+
+        report = discover_library(
+            self.source_root,
+            self.library_id,
+            should_stop=should_stop,
+        )
         for diagnostic in report.diagnostics:
             self.store.record_scan_error(
                 scan_id,
@@ -295,10 +316,17 @@ class HistoricalIndexer:
                 diagnostic.code,
             )
 
+        pending_assets = tuple(
+            asset
+            for asset in report.assets
+            if not self.store.scan_observation_matches(scan_id, asset)
+        )
         observed_count = 0
         diagnostic_count = len(report.diagnostics)
         source_instability_detected = False
-        for asset in report.assets:
+        for asset in pending_assets:
+            if should_stop is not None and should_stop():
+                break
             if max_items is not None and observed_count >= max_items:
                 break
             try:
@@ -307,6 +335,7 @@ class HistoricalIndexer:
                     asset,
                     self.source_root / asset.relative_path,
                     force_hash=full_hash_audit,
+                    supersede_proposals=self.mutate_review_proposals,
                 )
             except SourceChangedDuringHash:
                 self.store.record_scan_error(
@@ -314,7 +343,11 @@ class HistoricalIndexer:
                     asset.relative_path,
                     "source_changed_during_hash",
                 )
-                self.store.mark_seen_without_version(scan_id, asset)
+                self.store.mark_seen_without_version(
+                    scan_id,
+                    asset,
+                    supersede_proposals=self.mutate_review_proposals,
+                )
                 diagnostic_count += 1
                 source_instability_detected = True
             observed_count += 1
@@ -323,12 +356,20 @@ class HistoricalIndexer:
             diagnostic.code in RECONCILIATION_BLOCKING_DIAGNOSTICS
             for diagnostic in report.diagnostics
         )
+        interrupted = should_stop is not None and should_stop()
         if (
-            observed_count == len(report.assets)
+            all(
+                self.store.scan_observation_matches(scan_id, asset)
+                for asset in report.assets
+            )
             and traversal_complete
             and not source_instability_detected
+            and not interrupted
         ):
-            self.store.complete_scan(scan_id)
+            self.store.complete_scan(
+                scan_id,
+                current_asset_ids=tuple(asset.asset_id for asset in report.assets),
+            )
             status = "completed"
         else:
             status = "running"

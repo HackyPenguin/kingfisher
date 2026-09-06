@@ -151,3 +151,31 @@ stable dry-run export. BioCLIP tests use fake providers, a fake decoder, and
 fake import modules so they exercise gating, provenance identities, closed
 deterministic outputs, retries, source/version validation, and source/sidecar
 safety without importing a real model or downloading weights.
+
+## Headless NAS runtime
+
+The NAS entry point is a separate closed CLI around `HistoricalIndexer`,
+`HistoricalStore`, and `HistoricalAnalysisRunner`; it never imports the legacy
+folder CLI or pipeline. Index and analysis work require explicit numeric caps.
+The process emits one canonical JSON summary with deterministic field, path,
+result, and error-code ordering. Retry counters distinguish additional attempts
+from durable failure attempts and exhausted assets.
+
+SIGTERM and SIGINT set a cooperative stop flag. Indexing checks it between
+source observations and analysis checks it between asset attempts. The current
+atomic unit finishes, the store closes through its context manager, and the CLI
+emits an interrupted summary. It does not turn shutdown into an analysis error.
+
+Artifact provisioning is an explicit network-enabled operator step. The four
+files named by `ModelSpec` are streamed into a sibling staging tree, hashed,
+written with a canonical revision/digest manifest, fsynced, and installed with
+one atomic directory rename. Existing invalid destinations are never replaced.
+Verify, analyze, and smoke paths contain no network operation and fail closed
+unless the manifest and every expected digest match.
+
+The Linux image contains only the historical modules, uses pinned CPU
+dependencies, and runs as UID/GID 65532. Its writable surfaces are the separate
+state mount and tmpfs; photo and artifact mounts plus the container root can be
+read-only. CI builds `linux/amd64`, runs the historical unit/integration suite
+inside the image, smoke-tests a read-only root with networking disabled, and
+publishes only a commit-addressed GHCR image plus its content digest on main.

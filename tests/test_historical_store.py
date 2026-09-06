@@ -34,8 +34,43 @@ class HistoricalStoreTests(unittest.TestCase):
         return HistoricalStore(self.state_root, self.source_root)
 
     def test_state_root_must_be_separate_from_photo_root(self):
+        forbidden = self.source_root / ".state"
         with self.assertRaises(ValueError):
-            HistoricalStore(self.source_root / ".state", self.source_root)
+            HistoricalStore(forbidden, self.source_root)
+        self.assertFalse(forbidden.exists())
+
+    def test_database_symlinks_cannot_redirect_state_writes_into_source(self):
+        self.state_root.mkdir()
+        redirected = self.source_root / "created.xmp"
+        (self.state_root / "historical.sqlite3").symlink_to(redirected)
+
+        with self.assertRaises(ValueError):
+            self.open_store()
+
+        self.assertFalse(redirected.exists())
+
+    def test_database_hardlinks_are_rejected_without_changing_source(self):
+        photo = self.write("bird.CR3", b"source bytes")
+        self.state_root.mkdir()
+        os.link(photo, self.state_root / "historical.sqlite3")
+
+        with self.assertRaises(ValueError):
+            self.open_store()
+
+        self.assertEqual(b"source bytes", photo.read_bytes())
+
+    def test_sqlite_companion_symlinks_are_rejected_before_database_open(self):
+        for suffix in ("-journal", "-shm", "-wal"):
+            with self.subTest(suffix=suffix):
+                state_root = Path(self.temporary_directory.name) / f"state{suffix}"
+                state_root.mkdir()
+                redirected = self.source_root / f"created{suffix}.xmp"
+                (state_root / f"historical.sqlite3{suffix}").symlink_to(redirected)
+
+                with self.assertRaises(ValueError):
+                    HistoricalStore(state_root, self.source_root)
+
+                self.assertFalse(redirected.exists())
 
     def test_indexer_cannot_read_from_a_different_source_root(self):
         other_root = Path(self.temporary_directory.name) / "other-photos"
@@ -131,6 +166,26 @@ class HistoricalStoreTests(unittest.TestCase):
             self.assertEqual("completed", store.scan_status(resumed.scan_id))
             self.assertEqual("a.CR3", store.scan_checkpoint(resumed.scan_id))
 
+    def test_repeated_fixed_bounds_make_progress_and_include_new_earlier_paths(self):
+        for name in ("a.CR3", "b.CR3", "c.CR3"):
+            self.write(name, name.encode("ascii"))
+
+        with self.open_store() as store:
+            indexer = HistoricalIndexer(store, self.source_root, "private-library")
+            summaries = [indexer.run(max_items=1)]
+            self.write("0.CR3", b"new earliest path")
+            while summaries[-1].status != "completed":
+                summaries.append(
+                    indexer.run(scan_id=summaries[0].scan_id, max_items=1)
+                )
+
+            self.assertEqual([1, 1, 1, 1], [item.observed_count for item in summaries])
+            self.assertEqual(
+                ("0.CR3", "a.CR3", "b.CR3", "c.CR3"),
+                store.list_asset_paths(),
+            )
+            self.assertEqual("completed", store.scan_status(summaries[0].scan_id))
+
     def test_unreadable_directory_never_marks_previously_seen_assets_missing(self):
         self.write("blocked/bird.CR3")
 
@@ -182,6 +237,20 @@ class HistoricalStoreTests(unittest.TestCase):
             )
             self.assertEqual((), store.stale_asset_paths(first_run))
             self.assertEqual(("bird.CR3",), store.stale_asset_paths(changed_run))
+
+    def test_stale_asset_query_applies_limit_in_sql(self):
+        for name in ("c.CR3", "a.CR3", "b.CR3"):
+            self.write(name)
+
+        with self.open_store() as store:
+            HistoricalIndexer(store, self.source_root, "private-library").run()
+            run_id = store.ensure_analysis_run("2.0", "model", "policy", {})
+
+            self.assertEqual(3, store.stale_asset_count(run_id))
+            self.assertEqual(
+                ("a.CR3", "b.CR3"),
+                store.stale_asset_paths(run_id, limit=2),
+            )
 
     def test_result_recording_is_idempotent_but_immutable(self):
         self.write("bird.CR3")
