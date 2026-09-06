@@ -68,6 +68,39 @@ class HistoricalArtifactTests(unittest.TestCase):
             )
         )
 
+    def test_manifest_uses_correct_hugging_face_repository_types(self):
+        from analyzer.kestrel_analyzer.historical_artifacts import artifact_manifest
+
+        artifacts = {
+            item["path"]: item["url"]
+            for item in artifact_manifest(ModelSpec())["artifacts"]
+        }
+
+        self.assertEqual(
+            "https://huggingface.co/imageomics/bioclip-2/resolve/"
+            "2957b322090f9cb17ae72c71981c7218a28d81e0/open_clip_config.json"
+            "?download=true",
+            artifacts["model/open_clip_config.json"],
+        )
+        self.assertEqual(
+            "https://huggingface.co/imageomics/bioclip-2/resolve/"
+            "2957b322090f9cb17ae72c71981c7218a28d81e0/"
+            "open_clip_model.safetensors?download=true",
+            artifacts["model/open_clip_model.safetensors"],
+        )
+        self.assertEqual(
+            "https://huggingface.co/datasets/imageomics/TreeOfLife-200M/resolve/"
+            "5f2dc493b3dc0e544438a04038ab15faa646b749/"
+            "embeddings/txt_emb_species.npy?download=true",
+            artifacts["taxonomy/embeddings/txt_emb_species.npy"],
+        )
+        self.assertEqual(
+            "https://huggingface.co/datasets/imageomics/TreeOfLife-200M/resolve/"
+            "5f2dc493b3dc0e544438a04038ab15faa646b749/"
+            "embeddings/txt_emb_species.json?download=true",
+            artifacts["taxonomy/embeddings/txt_emb_species.json"],
+        )
+
     def test_provision_stages_verifies_and_atomically_installs_exact_tree(self):
         from analyzer.kestrel_analyzer.historical_artifacts import (
             artifact_descriptors,
