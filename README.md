@@ -90,6 +90,14 @@ Features of the visualizer:
 - **Detailed View**: Examine individual images with metadata
 - **External Tools**: Open original files or simply double-click to launch Darktable
 
+### Historical NAS runtime
+
+The separate historical runtime indexes and analyzes an established library
+without writing photos, sidecars, XMP, ratings, labels, or Lightroom metadata.
+See the [headless runtime guide](docs/historical-culling/headless-runtime.md) for
+bounded JSON commands, immutable offline model provisioning, container mounts,
+and GHCR publishing behavior.
+
 ## How It Works
 
 ### 1. Bird Detection

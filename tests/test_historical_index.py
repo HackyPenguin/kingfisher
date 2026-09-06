@@ -83,6 +83,24 @@ class HistoricalDiscoveryTests(unittest.TestCase):
         self.assertEqual(first_asset.asset_id, remounted_asset.asset_id)
         self.assertNotEqual(first_asset.asset_id, other_library_asset.asset_id)
 
+    def test_discovery_stops_cooperatively_between_entries(self):
+        self.write("a.jpg")
+        self.write("b.jpg")
+        calls = 0
+
+        def should_stop():
+            nonlocal calls
+            calls += 1
+            return calls >= 3
+
+        report = discover_library(
+            self.root,
+            library_id="private-library",
+            should_stop=should_stop,
+        )
+
+        self.assertLess(len(report.assets), 2)
+
     def test_stable_hash_records_full_sha256_and_stat_signature(self):
         path = self.write("bird.CR3", b"a complete source image")
 

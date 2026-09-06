@@ -36,7 +36,10 @@
 
 ## Slice 5: NAS deployment
 
-- [ ] Build and pin an x86-64 CPU image.
+- [x] Build and pin an x86-64 CPU image and its direct headless dependencies.
+- [x] Add bounded index/analyze/status/smoke commands with cooperative shutdown.
+- [x] Add atomic immutable BioCLIP artifact provisioning and offline verification.
+- [x] Test the image on pull requests and publish commit-addressed GHCR digests on main.
 - [ ] Add a k3s/Argo CD service with read-only photo mounts.
 - [ ] Add separate state/cache persistence and resource limits.
 - [ ] Run a dry-run backfill, benchmark, soak, and recovery test.

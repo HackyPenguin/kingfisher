@@ -1,0 +1,12 @@
+.git
+.agents
+.claude
+.codex
+.venv*
+__pycache__
+*.py[cod]
+analyzer/models
+assets
+readme_imgs
+test_imgs
+training

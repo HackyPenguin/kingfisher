@@ -364,13 +364,28 @@ class HistoricalAnalysisRunner:
             config=self.config.run_config(),
         )
 
-    def run(self, library_id: str, relative_path: str) -> AnalysisOutcome:
+    def run(
+        self,
+        library_id: str,
+        relative_path: str,
+        *,
+        verify_cached: bool = False,
+    ) -> AnalysisOutcome:
+        """Analyze an indexed asset, optionally exercising a cached model path.
+
+        ``verify_cached`` is reserved for an explicit real-model smoke check. It
+        reruns decode and prediction but returns the existing immutable result
+        without replacing or comparing it.
+        """
+
+        if not isinstance(verify_cached, bool):
+            raise TypeError("verify_cached must be a boolean")
         asset = self.store.resolve_analysis_asset(library_id, relative_path)
         run_id = self.ensure_analysis_run()
         source_bytes = self._read_verified_source_or_record(asset, run_id)
 
         existing = self.store.analysis_result(asset.asset_version_id, run_id)
-        if existing is not None:
+        if existing is not None and not verify_cached:
             result_id, output = existing
             return AnalysisOutcome(run_id, result_id, output, True)
 
@@ -426,6 +441,9 @@ class HistoricalAnalysisRunner:
             taxonomy_status,
             taxonomy,
         )
+        if existing is not None:
+            result_id, existing_output = existing
+            return AnalysisOutcome(run_id, result_id, existing_output, True)
         result_id = "result-" + hashlib.sha256(
             f"{asset.asset_version_id}\0{run_id}".encode("utf-8")
         ).hexdigest()

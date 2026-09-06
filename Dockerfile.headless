@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+
+FROM python:3.11.14-slim-bookworm@sha256:65a93d69fa75478d554f4ad27c85c1e69fa184956261b4301ebaf6dbb0a3543d AS dependencies
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /opt/kingfisher
+
+COPY requirements-headless.txt ./
+RUN python -m pip install --no-compile --requirement requirements-headless.txt
+
+COPY analyzer/__init__.py analyzer/__init__.py
+COPY analyzer/kestrel_analyzer/__init__.py analyzer/kestrel_analyzer/config.py analyzer/kestrel_analyzer/
+COPY analyzer/kestrel_analyzer/historical_analysis.py analyzer/kestrel_analyzer/historical_artifacts.py analyzer/kestrel_analyzer/
+COPY analyzer/kestrel_analyzer/historical_cli.py analyzer/kestrel_analyzer/historical_index.py analyzer/kestrel_analyzer/
+COPY analyzer/kestrel_analyzer/historical_store.py analyzer/kestrel_analyzer/pybioclip_adapter.py analyzer/kestrel_analyzer/
+COPY analyzer/kestrel_analyzer/review_policy.py analyzer/kestrel_analyzer/
+
+FROM dependencies AS test
+
+COPY requirements.txt ./
+COPY requirements-test.txt ./
+RUN python -m pip install --no-compile --requirement requirements-test.txt
+COPY analyzer/kestrel_analyzer/ml/eye_focus.py analyzer/kestrel_analyzer/ml/eye_focus.py
+COPY scripts/eval_eye_focus.py scripts/eval_eye_focus.py
+COPY tests/test_*.py tests/
+COPY Dockerfile.headless ./
+COPY .github/workflows/headless-container.yml .github/workflows/headless-container.yml
+RUN coverage run \
+      --source=analyzer.kestrel_analyzer.historical_analysis,analyzer.kestrel_analyzer.historical_artifacts,analyzer.kestrel_analyzer.historical_cli,analyzer.kestrel_analyzer.historical_index,analyzer.kestrel_analyzer.historical_store,analyzer.kestrel_analyzer.pybioclip_adapter,analyzer.kestrel_analyzer.review_policy \
+      -m unittest discover --start-directory tests --pattern "test_*.py" \
+    && coverage report --fail-under=80
+
+FROM dependencies AS runtime
+
+RUN groupadd --gid 65532 kingfisher \
+    && useradd --uid 65532 --gid 65532 --no-create-home \
+        --home-dir /nonexistent --shell /usr/sbin/nologin kingfisher \
+    && mkdir -p /state/cache /tmp \
+    && chown -R 65532:65532 /state /tmp
+
+ENV HOME=/nonexistent \
+    HF_DATASETS_OFFLINE=1 \
+    HF_HOME=/state/cache/huggingface \
+    HF_HUB_OFFLINE=1 \
+    TORCH_HOME=/state/cache/torch \
+    TRANSFORMERS_OFFLINE=1 \
+    XDG_CACHE_HOME=/state/cache \
+    TMPDIR=/tmp
+
+USER 65532:65532
+
+ENTRYPOINT ["python", "-m", "analyzer.kestrel_analyzer.historical_cli"]
+CMD ["--help"]

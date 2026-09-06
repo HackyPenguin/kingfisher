@@ -612,19 +612,20 @@ class HistoricalAnalysisTests(unittest.TestCase):
 
     def test_runtime_dependency_pins_match_model_provenance(self):
         _, _, ModelSpec, _ = self.imports()
-        requirements = (
-            Path(__file__).resolve().parents[1] / "requirements.txt"
-        ).read_text(encoding="utf-8").splitlines()
         model = ModelSpec()
 
-        self.assertIn(
-            f"{model.package}=={model.package_version}",
-            requirements,
-        )
-        self.assertIn(
-            f"{model.open_clip_package}=={model.open_clip_package_version}",
-            requirements,
-        )
+        for filename in ("requirements.txt", "requirements-headless.txt"):
+            requirements = (
+                Path(__file__).resolve().parents[1] / filename
+            ).read_text(encoding="utf-8").splitlines()
+            self.assertIn(
+                f"{model.package}=={model.package_version}",
+                requirements,
+            )
+            self.assertIn(
+                f"{model.open_clip_package}=={model.open_clip_package_version}",
+                requirements,
+            )
 
     def test_runner_does_not_change_sources_sidecars_or_review_proposals(self):
         before = self.source_snapshot()

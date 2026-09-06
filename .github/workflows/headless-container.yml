@@ -1,0 +1,98 @@
+name: Headless container
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build and run container tests
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: Dockerfile.headless
+          load: true
+          platforms: linux/amd64
+          push: false
+          tags: kingfisher-headless:test
+          target: test
+
+      - name: Build runtime container
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: Dockerfile.headless
+          load: true
+          platforms: linux/amd64
+          push: false
+          tags: kingfisher-headless:runtime-test
+          target: runtime
+
+      - name: Smoke test read-only-root runtime without network
+        shell: bash
+        run: |
+          mkdir -p .ci/photos .ci/state
+          sudo chown 65532:65532 .ci/state
+          docker run --rm --platform linux/amd64 --network none --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --mount type=bind,src="$PWD/.ci/photos",dst=/photos,readonly \
+            --mount type=bind,src="$PWD/.ci/state",dst=/state \
+            kingfisher-headless:runtime-test \
+            index --source-root /photos --state-root /state \
+            --library-id ci-smoke --max-items 0
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve lowercase image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}-headless" >> "$GITHUB_OUTPUT"
+
+      - name: Publish commit-addressed image
+        id: publish
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: Dockerfile.headless
+          platforms: linux/amd64
+          provenance: mode=max
+          push: true
+          tags: ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+          target: runtime
+
+      - name: Record immutable image digest
+        shell: bash
+        run: echo '${{ steps.image.outputs.name }}@${{ steps.publish.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
