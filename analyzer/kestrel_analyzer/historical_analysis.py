@@ -217,6 +217,7 @@ class PreprocessingSpec:
 class AnalysisConfig:
     animal_threshold: float = 0.5
     taxonomy_top_k: int = 5
+    max_source_bytes: int = 512 * 1024 * 1024
     candidate_species: tuple[str, ...] = ()
     model: ModelSpec = field(default_factory=ModelSpec)
     preprocessing: PreprocessingSpec = field(default_factory=PreprocessingSpec)
@@ -231,6 +232,12 @@ class AnalysisConfig:
             raise TypeError("taxonomy_top_k must be an integer")
         if self.taxonomy_top_k <= 0:
             raise ValueError("taxonomy_top_k must be positive")
+        if isinstance(self.max_source_bytes, bool) or not isinstance(
+            self.max_source_bytes, int
+        ):
+            raise TypeError("max_source_bytes must be an integer")
+        if self.max_source_bytes <= 0:
+            raise ValueError("max_source_bytes must be positive")
         if not isinstance(self.model, ModelSpec):
             raise TypeError("model must be a ModelSpec")
         if not isinstance(self.preprocessing, PreprocessingSpec):
@@ -252,6 +259,7 @@ class AnalysisConfig:
             "animal_threshold": self.animal_threshold,
             "broad_labels": list(BROAD_LABELS),
             "candidate_species": list(self.candidate_species),
+            "max_source_bytes": self.max_source_bytes,
             "output_schema_version": OUTPUT_SCHEMA_VERSION,
             "preprocessing": self.preprocessing.to_dict(),
             "taxonomy_top_k": self.taxonomy_top_k,
@@ -314,6 +322,17 @@ class SourceVersionMismatch(HistoricalAnalysisError):
             "source_version_mismatch",
             "source_version_mismatch: source does not match indexed asset version",
         )
+
+
+class HistoricalAnalysisSkipped(HistoricalAnalysisError):
+    """A durable, non-retryable analysis exclusion for the active run."""
+
+    def __init__(self, error_code: str) -> None:
+        super().__init__(error_code, error_code)
+
+
+class _SourceTooLarge(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -382,6 +401,13 @@ class HistoricalAnalysisRunner:
             raise TypeError("verify_cached must be a boolean")
         asset = self.store.resolve_analysis_asset(library_id, relative_path)
         run_id = self.ensure_analysis_run()
+        if asset.byte_size > self.config.max_source_bytes:
+            self.store.record_analysis_skip(
+                asset.asset_version_id,
+                run_id,
+                "source_too_large",
+            )
+            raise HistoricalAnalysisSkipped("source_too_large")
         source_bytes = self._read_verified_source_or_record(asset, run_id)
 
         existing = self.store.analysis_result(asset.asset_version_id, run_id)
@@ -518,6 +544,8 @@ class HistoricalAnalysisRunner:
             before = os.fstat(file_descriptor)
             if not stat.S_ISREG(before.st_mode):
                 raise ValueError("analysis source must be a regular file")
+            if before.st_size > self.config.max_source_bytes:
+                raise _SourceTooLarge("analysis source exceeds configured byte limit")
             digest = hashlib.sha256()
             source_bytes = bytearray()
             with os.fdopen(file_descriptor, "rb") as source:
@@ -526,6 +554,10 @@ class HistoricalAnalysisRunner:
                     chunk = source.read(1024 * 1024)
                     if not chunk:
                         break
+                    if len(source_bytes) + len(chunk) > self.config.max_source_bytes:
+                        raise _SourceTooLarge(
+                            "analysis source exceeds configured byte limit"
+                        )
                     digest.update(chunk)
                     source_bytes.extend(chunk)
                 after = os.fstat(source.fileno())

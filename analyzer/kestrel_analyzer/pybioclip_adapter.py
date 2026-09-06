@@ -142,11 +142,12 @@ class PyBioClipProvider:
                 for label in labels_tuple
                 for prompt in (label, f"scene without {label}")
             )
-            self._broad_classifier = predict_module.CustomLabelsClassifier(
+            classifier = predict_module.CustomLabelsClassifier(
                 cls_ary=list(prompts),
                 **self._classifier_kwargs(assets),
             )
             self._verified_local_assets()
+            self._broad_classifier = classifier
             self._broad_labels = labels_tuple
         elif labels_tuple != self._broad_labels:
             raise ValueError("broad classifier labels cannot change after initialization")
@@ -194,7 +195,7 @@ class PyBioClipProvider:
             assets = self._verified_local_assets()
             predict_module = self._module_loader("bioclip.predict")
             bioclip_module = self._module_loader("bioclip")
-            self._species_rank = bioclip_module.Rank.SPECIES
+            species_rank = bioclip_module.Rank.SPECIES
             taxonomy_files = {
                 "embeddings/txt_emb_species.npy": str(assets.taxonomy_embeddings),
                 "embeddings/txt_emb_species.json": str(assets.taxonomy_labels),
@@ -208,16 +209,18 @@ class PyBioClipProvider:
                     except KeyError as error:
                         raise RuntimeError("unexpected taxonomy artifact request") from error
 
-            self._taxonomy_classifier = LocalTreeOfLifeClassifier(
+            classifier = LocalTreeOfLifeClassifier(
                 **self._classifier_kwargs(assets)
             )
             self._verified_local_assets()
             if candidates_tuple:
-                taxa_filter = self._taxonomy_classifier.create_taxa_filter(
-                    self._species_rank,
+                taxa_filter = classifier.create_taxa_filter(
+                    species_rank,
                     list(candidates_tuple),
                 )
-                self._taxonomy_classifier.apply_filter(taxa_filter)
+                classifier.apply_filter(taxa_filter)
+            self._taxonomy_classifier = classifier
+            self._species_rank = species_rank
             self._taxonomy_candidates = candidates_tuple
         elif candidates_tuple != self._taxonomy_candidates:
             raise ValueError("taxonomy candidates cannot change after initialization")

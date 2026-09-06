@@ -22,6 +22,7 @@ from .historical_analysis import (
     AnalysisConfig,
     HistoricalAnalysisError,
     HistoricalAnalysisRunner,
+    HistoricalAnalysisSkipped,
     ModelSpec,
 )
 from .historical_artifacts import (
@@ -39,6 +40,8 @@ from .pybioclip_adapter import LocalBioClipAssets, PyBioClipProvider
 CLI_SCHEMA_VERSION = 1
 MAX_WORK_ITEMS = 1_000_000
 MAX_RETRIES = 10
+DEFAULT_MAX_SOURCE_BYTES = 512 * 1024 * 1024
+MAX_SOURCE_BYTES = 4 * 1024 * 1024 * 1024
 EXIT_FAILED = 1
 EXIT_USAGE = 2
 EXIT_SIGTERM = 143
@@ -68,6 +71,18 @@ def _bounded_integer(name: str, maximum: int) -> Callable[[str], int]:
     return parse
 
 
+def _positive_bounded_integer(name: str, maximum: int) -> Callable[[str], int]:
+    parse_bounded = _bounded_integer(name, maximum)
+
+    def parse(value: str) -> int:
+        parsed = parse_bounded(value)
+        if parsed == 0:
+            raise argparse.ArgumentTypeError(f"{name} must be positive")
+        return parsed
+
+    return parse
+
+
 def _common_library_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source-root", required=True)
     parser.add_argument("--state-root", required=True)
@@ -79,6 +94,14 @@ def _artifact_argument(parser: argparse.ArgumentParser) -> None:
         "--artifact-root",
         required=True,
         help="Pre-provisioned immutable model tree; never fetched during inference",
+    )
+
+
+def _source_size_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--max-source-bytes",
+        default=DEFAULT_MAX_SOURCE_BYTES,
+        type=_positive_bounded_integer("max-source-bytes", MAX_SOURCE_BYTES),
     )
 
 
@@ -99,6 +122,7 @@ def build_parser() -> MachineArgumentParser:
     analyze = commands.add_parser("analyze")
     _common_library_arguments(analyze)
     _artifact_argument(analyze)
+    _source_size_argument(analyze)
     analyze.add_argument(
         "--limit",
         required=True,
@@ -113,6 +137,7 @@ def build_parser() -> MachineArgumentParser:
     run = commands.add_parser("run")
     _common_library_arguments(run)
     _artifact_argument(run)
+    _source_size_argument(run)
     run.add_argument(
         "--max-items",
         required=True,
@@ -137,6 +162,7 @@ def build_parser() -> MachineArgumentParser:
     smoke = commands.add_parser("smoke")
     _common_library_arguments(smoke)
     _artifact_argument(smoke)
+    _source_size_argument(smoke)
     smoke.add_argument("--relative-path", required=True)
 
     artifacts = commands.add_parser("artifacts")
@@ -222,6 +248,7 @@ def _analysis_document(
     artifact_root: Path,
     limit: int,
     max_retries: int,
+    max_source_bytes: int,
     stop_event: threading.Event,
     provider_factory: Callable[[ModelSpec, Path], Any],
     decoder: Any,
@@ -232,7 +259,7 @@ def _analysis_document(
     provider = provider_factory(model, artifact_root)
     runner = HistoricalAnalysisRunner(
         store,
-        config=AnalysisConfig(model=model),
+        config=AnalysisConfig(model=model, max_source_bytes=max_source_bytes),
         provider=provider,
         decoder=decoder,
     )
@@ -257,9 +284,11 @@ def _analysis_document(
     retry_count = 0
     failure_attempt_count = 0
     failed_count = 0
+    skipped_count = 0
     processed_count = 0
     cached_count = 0
     errors: Counter[str] = Counter()
+    skips: Counter[str] = Counter()
     results: list[dict[str, Any]] = []
 
     for path in selected_paths:
@@ -274,6 +303,11 @@ def _analysis_document(
                     path,
                     verify_cached=relative_path is not None,
                 )
+            except HistoricalAnalysisSkipped as error:
+                skipped_count += 1
+                processed_count += 1
+                skips[error.error_code] += 1
+                break
             except HistoricalAnalysisError as error:
                 failure_attempt_count += 1
                 errors[error.error_code] += 1
@@ -320,6 +354,11 @@ def _analysis_document(
             "results": results,
             "retry_count": retry_count,
             "selected_count": len(selected_paths),
+            "skipped_count": skipped_count,
+            "skips": [
+                {"count": skips[error_code], "error_code": error_code}
+                for error_code in sorted(skips)
+            ],
             "success_count": len(results),
         },
         verification,
@@ -333,7 +372,8 @@ def _library_status(store: HistoricalStore, library_id: str) -> dict[str, int]:
           COUNT(DISTINCT a.asset_id) AS asset_count,
           COUNT(DISTINCT a.current_asset_version_id) AS stable_asset_count,
           COUNT(DISTINCT r.result_id) AS result_count,
-          COUNT(DISTINCT f.attempt_id) AS failure_attempt_count
+          COUNT(DISTINCT f.attempt_id) AS failure_attempt_count,
+          COUNT(DISTINCT s.skip_id) AS skipped_count
         FROM assets AS a
         LEFT JOIN asset_versions AS v
           ON v.asset_version_id = a.current_asset_version_id
@@ -341,6 +381,8 @@ def _library_status(store: HistoricalStore, library_id: str) -> dict[str, int]:
           ON r.asset_version_id = v.asset_version_id
         LEFT JOIN analysis_attempt_failures AS f
           ON f.asset_version_id = v.asset_version_id
+        LEFT JOIN analysis_terminal_skips AS s
+          ON s.asset_version_id = v.asset_version_id
         WHERE a.library_id = ? AND a.state = 'active'
         """,
         (library_id,),
@@ -421,6 +463,7 @@ def _run_library_command(
                     ),
                     limit=limit,
                     max_retries=max_retries,
+                    max_source_bytes=arguments.max_source_bytes,
                     stop_event=stop_event,
                     provider_factory=provider_factory,
                     decoder=decoder,

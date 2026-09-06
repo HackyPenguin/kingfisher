@@ -495,12 +495,13 @@ class HistoricalAnalysisTests(unittest.TestCase):
                 "SELECT name FROM sqlite_master WHERE type = 'trigger' "
                 "AND (name LIKE 'analysis_attempt_failures_no_%' "
                 "OR name LIKE 'analysis_runs_no_%' "
-                "OR name LIKE 'analysis_results_no_%') ORDER BY name"
+                "OR name LIKE 'analysis_results_no_%' "
+                "OR name LIKE 'analysis_terminal_skips_no_%') ORDER BY name"
             ).fetchall()
 
-        self.assertEqual((1, 2), versions)
+        self.assertEqual((1, 2, 3), versions)
         self.assertEqual("analysis_attempt_failures", table[0])
-        self.assertEqual(6, len(triggers))
+        self.assertEqual(8, len(triggers))
 
     def test_analysis_runs_and_results_are_database_immutable(self):
         outcome = self.runner().run("private-library", "nested/bird.jpg")
@@ -590,6 +591,10 @@ class HistoricalAnalysisTests(unittest.TestCase):
             AnalysisConfig(taxonomy_top_k=0)
         with self.assertRaises(TypeError):
             AnalysisConfig(taxonomy_top_k=True)
+        with self.assertRaises(ValueError):
+            AnalysisConfig(max_source_bytes=0)
+        with self.assertRaises(TypeError):
+            AnalysisConfig(max_source_bytes=True)
         with self.assertRaises(TypeError):
             AnalysisConfig(candidate_species="Alcedo atthis")
         with self.assertRaises(ValueError):
@@ -609,6 +614,59 @@ class HistoricalAnalysisTests(unittest.TestCase):
             ModelSpec(taxonomy_embeddings_sha256="not-a-digest")
         with self.assertRaises(ValueError):
             ModelSpec(taxonomy_labels_sha256="not-a-digest")
+
+    def test_source_size_limit_is_run_scoped_and_terminal_without_model_work(self):
+        provider = FakeProvider()
+        decoder = FakeDecoder()
+        runner = self.runner(
+            provider,
+            decoder,
+            self.config(max_source_bytes=8),
+        )
+        run_id = runner.ensure_analysis_run()
+
+        with self.assertRaisesRegex(Exception, "source_too_large"):
+            runner.run("private-library", "nested/bird.jpg")
+
+        self.assertEqual([], decoder.inputs)
+        self.assertEqual([], provider.broad_calls)
+        self.assertEqual((), self.store.analysis_failures())
+        skip = self.store.analysis_skips()[0]
+        self.assertEqual("source_too_large", skip["reason_code"])
+        self.assertEqual((), self.store.stale_asset_paths(run_id))
+        with self.assertRaisesRegex(Exception, "source_too_large"):
+            runner.run("private-library", "nested/bird.jpg")
+        self.assertEqual(1, len(self.store.analysis_skips()))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.store.connection.execute(
+                "DELETE FROM analysis_terminal_skips WHERE skip_id = ?",
+                (skip["skip_id"],),
+            )
+        self.assertNotEqual(
+            run_id,
+            self.runner(config=self.config(max_source_bytes=9)).ensure_analysis_run(),
+        )
+
+    def test_open_descriptor_size_limit_prevents_allocation_after_source_growth(self):
+        provider = FakeProvider()
+        decoder = FakeDecoder()
+        runner = self.runner(
+            provider,
+            decoder,
+            self.config(max_source_bytes=self.photo.stat().st_size + 1),
+        )
+        self.photo.write_bytes(b"x" * 64)
+
+        with self.assertRaisesRegex(Exception, "source_version_mismatch"):
+            runner.run("private-library", "nested/bird.jpg")
+
+        self.assertEqual([], decoder.inputs)
+        self.assertEqual([], provider.broad_calls)
+        self.assertEqual((), self.store.analysis_skips())
+        self.assertEqual(
+            "source_version_mismatch",
+            self.store.analysis_failures()[0]["error_code"],
+        )
 
     def test_runtime_dependency_pins_match_model_provenance(self):
         _, _, ModelSpec, _ = self.imports()
@@ -880,6 +938,52 @@ class PyBioClipAdapterTests(unittest.TestCase):
         local_assets_resolver(model).model_weights.write_bytes(b"tampered")
         with self.assertRaisesRegex(RuntimeError, "local BioCLIP artifact"):
             provider().predict_broad("image", labels)
+
+    def test_adapter_publishes_classifier_only_after_post_load_verification(self):
+        from analyzer.kestrel_analyzer.pybioclip_adapter import PyBioClipProvider
+
+        model, local_assets_resolver = self.local_assets()
+        assets = local_assets_resolver(model)
+        original_weights = assets.model_weights.read_bytes()
+        constructor_calls = 0
+
+        class Classifier:
+            def __init__(self, cls_ary, **kwargs):
+                nonlocal constructor_calls
+                constructor_calls += 1
+                self.prompts = tuple(cls_ary)
+                if constructor_calls == 1:
+                    assets.model_weights.write_bytes(b"changed during construction")
+
+            def predict(self, image, **kwargs):
+                return tuple(
+                    {"classification": prompt, "score": 1.0}
+                    for prompt in self.prompts
+                )
+
+        provider = PyBioClipProvider(
+            model,
+            local_assets_resolver=local_assets_resolver,
+            module_loader=lambda _name: types.SimpleNamespace(
+                CustomLabelsClassifier=Classifier
+            ),
+            package_version_resolver=lambda package: {
+                model.package: model.package_version,
+                model.open_clip_package: model.open_clip_package_version,
+            }[package],
+        )
+        labels = ("landscape", "architecture", "human", "animal")
+
+        with self.assertRaisesRegex(RuntimeError, "local BioCLIP artifact"):
+            provider.predict_broad("image", labels)
+        self.assertIsNone(provider._broad_classifier)
+        self.assertIsNone(provider._broad_labels)
+
+        assets.model_weights.write_bytes(original_weights)
+        predictions = provider.predict_broad("image", labels)
+
+        self.assertEqual(2, constructor_calls)
+        self.assertEqual(labels, tuple(item["classification"] for item in predictions))
 
     def test_adapter_normalizes_each_prompt_pair_independently(self):
         from analyzer.kestrel_analyzer.pybioclip_adapter import PyBioClipProvider

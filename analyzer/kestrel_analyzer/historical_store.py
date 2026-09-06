@@ -19,7 +19,7 @@ from .historical_index import DiscoveredAsset, hash_file_stably
 from .review_policy import Decision, ReviewProposal
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MANIFEST_SCHEMA_VERSION = 1
 _VERSION_NAMESPACE = uuid.UUID("40f11d91-8f27-4058-ae61-e519dd5e85a1")
 _ACTIONABLE_DECISIONS = frozenset(
@@ -37,6 +37,7 @@ _ANALYSIS_FAILURE_CODES = frozenset(
         "source_version_mismatch",
     }
 )
+_ANALYSIS_SKIP_CODES = frozenset({"source_too_large"})
 
 
 @dataclass(frozen=True)
@@ -342,6 +343,27 @@ class HistoricalStore:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS analysis_terminal_skips (
+                skip_id TEXT PRIMARY KEY,
+                asset_version_id TEXT NOT NULL REFERENCES asset_versions(asset_version_id),
+                analysis_run_id TEXT NOT NULL REFERENCES analysis_runs(analysis_run_id),
+                reason_code TEXT NOT NULL CHECK (reason_code IN ('source_too_large')),
+                created_at TEXT NOT NULL,
+                UNIQUE(asset_version_id, analysis_run_id)
+            );
+
+            CREATE TRIGGER IF NOT EXISTS analysis_terminal_skips_no_update
+            BEFORE UPDATE ON analysis_terminal_skips
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis terminal skips are immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS analysis_terminal_skips_no_delete
+            BEFORE DELETE ON analysis_terminal_skips
+            BEGIN
+                SELECT RAISE(ABORT, 'analysis terminal skips are immutable');
+            END;
+
             CREATE TRIGGER IF NOT EXISTS analysis_attempt_failures_no_update
             BEFORE UPDATE ON analysis_attempt_failures
             BEGIN
@@ -412,10 +434,11 @@ class HistoricalStore:
             );
             """
         )
-        self.connection.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-            (SCHEMA_VERSION, _utc_now()),
-        )
+        for version in range(2, SCHEMA_VERSION + 1):
+            self.connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (version, _utc_now()),
+            )
 
     def pragma_value(self, name: str) -> Any:
         if name not in {"journal_mode", "foreign_keys", "synchronous", "busy_timeout"}:
@@ -925,11 +948,15 @@ class HistoricalStore:
     ) -> tuple[str, ...]:
         if limit is not None and (not isinstance(limit, int) or limit < 0):
             raise ValueError("limit must be a non-negative integer or None")
-        parameters: tuple[str | int, ...] = (analysis_run_id,)
+        parameters: tuple[str | int, ...] = (analysis_run_id, analysis_run_id)
         library_filter = ""
         if library_id is not None:
             library_filter = "AND a.library_id = ?"
-            parameters = (analysis_run_id, _require_identifier(library_id, "library_id"))
+            parameters = (
+                analysis_run_id,
+                analysis_run_id,
+                _require_identifier(library_id, "library_id"),
+            )
         limit_clause = ""
         if limit is not None:
             limit_clause = "LIMIT ?"
@@ -946,6 +973,11 @@ class HistoricalStore:
                     AND r.analysis_run_id = ?
                     AND r.status = 'analysed'
             )
+              AND NOT EXISTS (
+                  SELECT 1 FROM analysis_terminal_skips AS s
+                  WHERE s.asset_version_id = a.current_asset_version_id
+                    AND s.analysis_run_id = ?
+              )
               {library_filter}
             ORDER BY a.canonical_relative_path COLLATE NOCASE, a.canonical_relative_path
             {limit_clause}
@@ -960,11 +992,15 @@ class HistoricalStore:
         *,
         library_id: str | None = None,
     ) -> int:
-        parameters: tuple[str, ...] = (analysis_run_id,)
+        parameters: tuple[str, ...] = (analysis_run_id, analysis_run_id)
         library_filter = ""
         if library_id is not None:
             library_filter = "AND a.library_id = ?"
-            parameters = (analysis_run_id, _require_identifier(library_id, "library_id"))
+            parameters = (
+                analysis_run_id,
+                analysis_run_id,
+                _require_identifier(library_id, "library_id"),
+            )
         row = self.connection.execute(
             f"""
             SELECT COUNT(*)
@@ -976,6 +1012,11 @@ class HistoricalStore:
                   WHERE r.asset_version_id = a.current_asset_version_id
                     AND r.analysis_run_id = ?
                     AND r.status = 'analysed'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM analysis_terminal_skips AS s
+                  WHERE s.asset_version_id = a.current_asset_version_id
+                    AND s.analysis_run_id = ?
               )
               {library_filter}
             """,
@@ -1072,6 +1113,63 @@ class HistoricalStore:
                 ),
             )
         return attempt_id
+
+    def record_analysis_skip(
+        self,
+        asset_version_id: str,
+        analysis_run_id: str,
+        reason_code: str,
+    ) -> str:
+        """Persist one immutable terminal exclusion for a version/run pair."""
+
+        if reason_code not in _ANALYSIS_SKIP_CODES:
+            raise ValueError("unsupported analysis skip code")
+        skip_id = str(
+            uuid.uuid5(
+                _VERSION_NAMESPACE,
+                f"skip\0{asset_version_id}\0{analysis_run_id}\0{reason_code}",
+            )
+        )
+        with self.transaction() as connection:
+            existing = connection.execute(
+                """
+                SELECT skip_id, reason_code
+                FROM analysis_terminal_skips
+                WHERE asset_version_id = ? AND analysis_run_id = ?
+                """,
+                (asset_version_id, analysis_run_id),
+            ).fetchone()
+            if existing is not None:
+                if existing["skip_id"] != skip_id or existing["reason_code"] != reason_code:
+                    raise ValueError("analysis terminal skips are immutable")
+                return skip_id
+            connection.execute(
+                """
+                INSERT INTO analysis_terminal_skips(
+                    skip_id, asset_version_id, analysis_run_id,
+                    reason_code, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    skip_id,
+                    asset_version_id,
+                    analysis_run_id,
+                    reason_code,
+                    _utc_now(),
+                ),
+            )
+        return skip_id
+
+    def analysis_skips(self) -> tuple[Mapping[str, Any], ...]:
+        rows = self.connection.execute(
+            """
+            SELECT skip_id, asset_version_id, analysis_run_id,
+                   reason_code, created_at
+            FROM analysis_terminal_skips
+            ORDER BY created_at, skip_id
+            """
+        ).fetchall()
+        return tuple(dict(row) for row in rows)
 
     def analysis_failures(self) -> tuple[Mapping[str, Any], ...]:
         rows = self.connection.execute(

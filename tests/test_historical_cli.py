@@ -283,6 +283,56 @@ class HistoricalCliTests(unittest.TestCase):
         self.assertEqual(1, summary["analysis"]["failed_count"])
         self.assertNotIn("sensitive provider detail", json.dumps(summary))
 
+    def test_oversized_asset_is_terminally_skipped_and_next_asset_progresses(self):
+        self.write("a-large.jpg", b"x" * 32)
+        self.write("z-small.jpg", b"ok")
+        self.run_cli(
+            ["index", *self.common(), "--max-items", "2"],
+            FakeProvider(),
+        )
+        provider = FakeProvider()
+
+        code, summary = self.run_cli(
+            [
+                "analyze",
+                *self.common(),
+                "--artifact-root",
+                str(self.artifact_root),
+                "--limit",
+                "2",
+                "--max-source-bytes",
+                "8",
+            ],
+            provider,
+        )
+
+        self.assertEqual(0, code)
+        self.assertEqual(1, summary["analysis"]["skipped_count"])
+        self.assertEqual(
+            [{"count": 1, "error_code": "source_too_large"}],
+            summary["analysis"]["skips"],
+        )
+        self.assertEqual(1, summary["analysis"]["success_count"])
+        self.assertEqual(0, summary["analysis"]["failed_count"])
+        self.assertEqual(1, provider.calls)
+
+        second_provider = FakeProvider()
+        _, second = self.run_cli(
+            [
+                "analyze",
+                *self.common(),
+                "--artifact-root",
+                str(self.artifact_root),
+                "--limit",
+                "2",
+                "--max-source-bytes",
+                "8",
+            ],
+            second_provider,
+        )
+        self.assertEqual(0, second["analysis"]["available_count"])
+        self.assertEqual(0, second_provider.calls)
+
     def test_stop_flag_finishes_current_asset_then_emits_interrupted_summary(self):
         self.write("a.jpg", b"a")
         self.write("b.jpg", b"b")

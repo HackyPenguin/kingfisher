@@ -18,7 +18,12 @@ Use three separate paths:
 The CLI rejects a state root beneath the source root. Source discovery skips
 symlinks and `.kingfisher` directories. Analysis opens sources through
 no-follow descriptors anchored at the source root and checks the indexed size
-and SHA-256 before decoding. The state directory must be a real directory owned
+and SHA-256 before decoding. The default 512 MiB `--max-source-bytes` cap is
+part of the analysis-run identity and is checked before allocating source
+buffers. Larger assets receive an immutable `source_too_large` skip for that
+version/run pair, so they cannot exhaust memory or block later work.
+
+The state directory must be a real directory owned
 by the runtime UID; SQLite database, WAL, SHM, and journal paths reject
 symlinks, hardlinks, foreign ownership, and identity changes before use.
 
@@ -58,7 +63,7 @@ resolution with those local paths. There is no download fallback.
 Every operational command requires an explicit source root, state root, and
 library ID. Indexing requires `--max-items`; analysis requires `--limit`.
 Values are restricted to `0..1000000`, and retries to `0..10` additional
-attempts per asset.
+attempts per asset. `--max-source-bytes` is positive and capped at 4 GiB.
 
 ```bash
 # Index at most 5,000 source files.
@@ -69,7 +74,8 @@ python -m analyzer.kestrel_analyzer.historical_cli index \
 # Index and analyze bounded work in one invocation.
 python -m analyzer.kestrel_analyzer.historical_cli run \
   --source-root /photos --state-root /state --library-id family-library \
-  --artifact-root /models --max-items 5000 --limit 100 --max-retries 2
+  --artifact-root /models --max-items 5000 --limit 100 --max-retries 2 \
+  --max-source-bytes 536870912
 
 # Inspect deterministic counters without loading a model.
 python -m analyzer.kestrel_analyzer.historical_cli status \
@@ -90,6 +96,8 @@ stable schemas, sorted paths and error codes, explicit selected/deferred counts,
 result IDs, cache counts, retry counts, and failure-attempt counts. They do not
 contain exception text. A bounded incomplete pass reports `bounded`; exhausted
 asset retries report `completed_with_failures` and exit 1.
+Terminal exclusions are reported separately under `skips` and are not selected
+again unless the source version or analysis configuration changes.
 
 Pass the reported `--scan-id` to a later `index` or `run` invocation to resume
 the same scan. Durable observations are retained, so repeated fixed-size calls
