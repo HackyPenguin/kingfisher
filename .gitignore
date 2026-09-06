@@ -2,6 +2,7 @@ __pycache__
 test_imgs/.kestrel/
 .venv/
 .venv2/
+.worktrees/
 large_files/
 .venv_from_base/
 dist/
