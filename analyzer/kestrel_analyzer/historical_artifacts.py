@@ -17,7 +17,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
-from typing import Any, BinaryIO, Callable, Mapping
+from typing import Any, BinaryIO, Callable, Literal, Mapping
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -90,10 +90,18 @@ def _raise_if_stopped(should_stop: Callable[[], bool] | None) -> None:
         raise ArtifactInterrupted()
 
 
-def _resolved_url(repo_id: str, revision: str, filename: str) -> str:
+def _resolved_url(
+    repo_id: str,
+    revision: str,
+    filename: str,
+    *,
+    repository_type: Literal["model", "dataset"],
+) -> str:
+    repository_prefix = "" if repository_type == "model" else "datasets/"
     return (
         "https://huggingface.co/"
-        f"{quote(repo_id, safe='/')}/resolve/{revision}/{quote(filename, safe='/')}"
+        f"{repository_prefix}{quote(repo_id, safe='/')}/resolve/{revision}/"
+        f"{quote(filename, safe='/')}"
         "?download=true"
     )
 
@@ -110,6 +118,7 @@ def artifact_descriptors(model: ModelSpec | None = None) -> tuple[ArtifactDescri
                 model.model_str.removeprefix("hf-hub:"),
                 model.model_revision,
                 "open_clip_config.json",
+                repository_type="model",
             ),
         ),
         ArtifactDescriptor(
@@ -119,6 +128,7 @@ def artifact_descriptors(model: ModelSpec | None = None) -> tuple[ArtifactDescri
                 model.model_str.removeprefix("hf-hub:"),
                 model.model_revision,
                 "open_clip_model.safetensors",
+                repository_type="model",
             ),
         ),
         ArtifactDescriptor(
@@ -128,6 +138,7 @@ def artifact_descriptors(model: ModelSpec | None = None) -> tuple[ArtifactDescri
                 model.taxonomy_repo_id,
                 model.taxonomy_repo_revision,
                 "embeddings/txt_emb_species.npy",
+                repository_type="dataset",
             ),
         ),
         ArtifactDescriptor(
@@ -137,6 +148,7 @@ def artifact_descriptors(model: ModelSpec | None = None) -> tuple[ArtifactDescri
                 model.taxonomy_repo_id,
                 model.taxonomy_repo_revision,
                 "embeddings/txt_emb_species.json",
+                repository_type="dataset",
             ),
         ),
     )
